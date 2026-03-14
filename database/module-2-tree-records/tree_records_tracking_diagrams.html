@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tree Records & Tracking — Database Design</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,500;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;600&family=Fraunces:opsz,wght@9..144,700;9..144,900&display=swap');
+
+  :root {
+    --bg: #0f1117;
+    --surface: #181b24;
+    --surface2: #1e2230;
+    --border: #2a2f3e;
+    --border-glow: #3d4663;
+    --text: #e1e4ed;
+    --text-dim: #8890a6;
+    --text-muted: #5c6380;
+    --accent-green: #4ade80;
+    --accent-green-dim: rgba(74,222,128,0.12);
+    --accent-blue: #60a5fa;
+    --accent-blue-dim: rgba(96,165,250,0.10);
+    --accent-amber: #fbbf24;
+    --accent-amber-dim: rgba(251,191,36,0.10);
+    --accent-rose: #fb7185;
+    --accent-rose-dim: rgba(251,113,133,0.10);
+    --accent-violet: #a78bfa;
+    --accent-violet-dim: rgba(167,139,250,0.10);
+    --accent-cyan: #22d3ee;
+    --accent-cyan-dim: rgba(34,211,238,0.10);
+    --accent-teal: #2dd4bf;
+    --accent-teal-dim: rgba(45,212,191,0.10);
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font-family:'DM Sans',sans-serif; min-height:100vh; overflow-x:hidden; }
+
+  .header { padding:48px 48px 32px; border-bottom:1px solid var(--border); background:linear-gradient(180deg,rgba(96,165,250,0.05) 0%,transparent 100%); }
+  .header-tag { font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:2.5px; text-transform:uppercase; color:var(--accent-blue); margin-bottom:12px; display:flex; align-items:center; gap:8px; }
+  .header-tag::before { content:''; display:inline-block; width:8px; height:8px; background:var(--accent-blue); border-radius:50%; box-shadow:0 0 8px var(--accent-blue); }
+  .header h1 { font-family:'Fraunces',serif; font-weight:900; font-size:36px; line-height:1.15; letter-spacing:-0.5px; background:linear-gradient(135deg,#e1e4ed 30%,#60a5fa 100%); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+  .header p { color:var(--text-dim); font-size:15px; margin-top:10px; max-width:680px; line-height:1.6; }
+  .header .dep { display:inline-block; margin-top:12px; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--accent-amber); background:var(--accent-amber-dim); padding:5px 12px; border-radius:6px; }
+
+  .tabs { display:flex; gap:0; padding:0 48px; border-bottom:1px solid var(--border); background:var(--surface); position:sticky; top:0; z-index:100; }
+  .tab { padding:16px 28px; font-size:13px; font-weight:500; color:var(--text-muted); cursor:pointer; border-bottom:2px solid transparent; transition:all .2s; user-select:none; font-family:'DM Sans',sans-serif; letter-spacing:.2px; }
+  .tab:hover { color:var(--text-dim); }
+  .tab.active { color:var(--accent-blue); border-bottom-color:var(--accent-blue); }
+
+  .tab-content { display:none; padding:40px 48px 60px; }
+  .tab-content.active { display:block; }
+
+  .section-title { font-family:'Fraunces',serif; font-weight:700; font-size:22px; margin-bottom:6px; }
+  .section-subtitle { color:var(--text-dim); font-size:13px; margin-bottom:32px; line-height:1.5; }
+
+  .er-container, .flow-container { width:100%; overflow-x:auto; border:1px solid var(--border); border-radius:12px; background:var(--surface); position:relative; }
+  .er-container svg, .flow-container svg { display:block; }
+
+  .schema-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(400px,1fr)); gap:20px; }
+  .schema-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; transition:border-color .3s; }
+  .schema-card:hover { border-color:var(--border-glow); }
+  .schema-card-header { padding:16px 20px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--border); }
+  .schema-card-title { font-family:'JetBrains Mono',monospace; font-size:13px; font-weight:600; }
+  .schema-card-badge { font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:1px; text-transform:uppercase; padding:4px 10px; border-radius:6px; font-weight:600; }
+  .badge-core { background:var(--accent-green-dim); color:var(--accent-green); }
+  .badge-lookup { background:var(--accent-blue-dim); color:var(--accent-blue); }
+  .badge-audit { background:var(--accent-amber-dim); color:var(--accent-amber); }
+  .badge-view { background:var(--accent-violet-dim); color:var(--accent-violet); }
+  .badge-iot { background:var(--accent-cyan-dim); color:var(--accent-cyan); }
+  .badge-health { background:var(--accent-rose-dim); color:var(--accent-rose); }
+
+  .schema-card-body { padding:12px 0; max-height:340px; overflow-y:auto; }
+  .col-row { display:grid; grid-template-columns:24px 1fr 130px; align-items:center; padding:5px 20px; font-size:13px; transition:background .15s; }
+  .col-row:hover { background:rgba(255,255,255,.02); }
+  .col-icon { font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:700; }
+  .col-icon.pk { color:var(--accent-amber); }
+  .col-icon.fk { color:var(--accent-rose); }
+  .col-icon.col { color:var(--text-muted); }
+  .col-name { font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--text); }
+  .col-type { font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-muted); text-align:right; }
+
+  .rel-table { width:100%; border-collapse:collapse; font-size:13px; }
+  .rel-table thead th { text-align:left; padding:12px 16px; font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px; border-bottom:1px solid var(--border); background:var(--surface); }
+  .rel-table tbody td { padding:10px 16px; border-bottom:1px solid var(--border); vertical-align:top; }
+  .rel-table tbody tr:hover { background:rgba(255,255,255,.015); }
+  .mono { font-family:'JetBrains Mono',monospace; font-size:12px; }
+  .cardinality-badge { display:inline-block; font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:600; padding:3px 10px; border-radius:5px; }
+  .card-1m { background:var(--accent-green-dim); color:var(--accent-green); }
+  .card-11 { background:var(--accent-cyan-dim); color:var(--accent-cyan); }
+  .card-ext { background:var(--accent-amber-dim); color:var(--accent-amber); }
+
+  .legend { display:flex; flex-wrap:wrap; gap:24px; padding:16px 24px; background:var(--surface2); border-radius:10px; margin-bottom:24px; border:1px solid var(--border); }
+  .legend-item { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-dim); }
+  .legend-swatch { width:14px; height:14px; border-radius:4px; border:2px solid; }
+  .legend-line { width:28px; height:3px; border-radius:2px; }
+
+  .stats-bar { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:16px; margin-bottom:36px; }
+  .stat-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:20px; text-align:center; }
+  .stat-number { font-family:'Fraunces',serif; font-size:32px; font-weight:900; }
+  .stat-number.green { color:var(--accent-green); }
+  .stat-number.blue { color:var(--accent-blue); }
+  .stat-number.amber { color:var(--accent-amber); }
+  .stat-number.violet { color:var(--accent-violet); }
+  .stat-number.rose { color:var(--accent-rose); }
+  .stat-number.cyan { color:var(--accent-cyan); }
+  .stat-label { font-size:11px; color:var(--text-muted); margin-top:4px; font-family:'JetBrains Mono',monospace; letter-spacing:.5px; }
+
+  /* Cross-ref indicator */
+  .xref { display:inline-flex; align-items:center; gap:4px; font-size:10px; font-family:'JetBrains Mono',monospace; color:var(--accent-amber); background:var(--accent-amber-dim); padding:2px 8px; border-radius:4px; margin-left:6px; }
+
+  @media(max-width:768px) {
+    .header,.tabs,.tab-content { padding-left:20px; padding-right:20px; }
+    .header h1 { font-size:26px; }
+    .schema-grid { grid-template-columns:1fr; }
+    .tab { padding:14px 14px; font-size:11px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-tag">Module 2 · PostgreSQL + PostGIS</div>
+  <h1>Tree Records & Tracking<br>Database Design</h1>
+  <p>Individual tree registration, growth monitoring, bark panel tracking, disease/treatment management, mortality analysis, and IoT tag integration — all at the single-tree level.</p>
+  <div class="dep">Depends on: Module 1 — Plantation Field Records (plantation, field, clone_master, nursery, lu_tapping_system)</div>
+</div>
+
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('er')">ER Diagram</div>
+  <div class="tab" onclick="switchTab('schema')">Table Schema</div>
+  <div class="tab" onclick="switchTab('relations')">Relationships</div>
+  <div class="tab" onclick="switchTab('flow')">Tree Lifecycle</div>
+</div>
+
+<!-- ═══════════ TAB 1: ER DIAGRAM ═══════════ -->
+<div class="tab-content active" id="tab-er">
+  <div class="stats-bar">
+    <div class="stat-card"><div class="stat-number green">5</div><div class="stat-label">Core Tables</div></div>
+    <div class="stat-card"><div class="stat-number blue">7</div><div class="stat-label">Lookup Tables</div></div>
+    <div class="stat-card"><div class="stat-number rose">4</div><div class="stat-label">Health / Disease</div></div>
+    <div class="stat-card"><div class="stat-number cyan">1</div><div class="stat-label">IoT Tables</div></div>
+    <div class="stat-card"><div class="stat-number amber">2</div><div class="stat-label">Audit / History</div></div>
+    <div class="stat-card"><div class="stat-number violet">4</div><div class="stat-label">Views</div></div>
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--accent-green-dim);border-color:var(--accent-green)"></div>Core Entity</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--accent-blue-dim);border-color:var(--accent-blue)"></div>Lookup</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--accent-rose-dim);border-color:var(--accent-rose)"></div>Health / Disease</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--accent-cyan-dim);border-color:var(--accent-cyan)"></div>IoT</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--accent-amber-dim);border-color:var(--accent-amber)"></div>Audit / History</div>
+    <div class="legend-item"><div class="legend-line" style="background:var(--accent-green)"></div>Internal FK</div>
+    <div class="legend-item"><div class="legend-line" style="background:var(--accent-amber);background:repeating-linear-gradient(90deg,var(--accent-amber) 0 6px,transparent 6px 10px)"></div>Cross-Module FK</div>
+  </div>
+
+  <div class="er-container" id="erDiagram"></div>
+</div>
+
+<!-- ═══════════ TAB 2: TABLE SCHEMA ═══════════ -->
+<div class="tab-content" id="tab-schema">
+  <div class="section-title">Table Definitions</div>
+  <div class="section-subtitle">All columns, types, and constraints for the Tree Records module. Tables referencing Module 1 are marked with <span class="xref">M1</span>.</div>
+  <div class="schema-grid" id="schemaGrid"></div>
+</div>
+
+<!-- ═══════════ TAB 3: RELATIONSHIPS ═══════════ -->
+<div class="tab-content" id="tab-relations">
+  <div class="section-title">Relationships & Cardinality</div>
+  <div class="section-subtitle">All foreign keys — internal to this module and cross-references to Module 1 (Plantation Field Records).</div>
+  <div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;">
+    <table class="rel-table" id="relTable"></table>
+  </div>
+</div>
+
+<!-- ═══════════ TAB 4: LIFECYCLE FLOW ═══════════ -->
+<div class="tab-content" id="tab-flow">
+  <div class="section-title">Tree Lifecycle & Data Flow</div>
+  <div class="section-subtitle">A rubber tree's journey from seedling through maturity to eventual mortality, and the data captured at each stage.</div>
+  <div class="flow-container" id="flowDiagram"></div>
+</div>
+
+<script>
+function switchTab(id) {
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', ['er','schema','relations','flow'][i]===id));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  document.getElementById('tab-'+id).classList.add('active');
+}
+
+// ══════════════════════════════════════════════════════════════════
+// SCHEMA DATA
+// ══════════════════════════════════════════════════════════════════
+const tables = [
+  { name:'tree', badge:'Core', badgeClass:'badge-core', columns:[
+    {icon:'PK',cls:'pk',name:'tree_id',type:'BIGSERIAL'},
+    {icon:'FK',cls:'fk',name:'plantation_id',type:'INT → M1'},
+    {icon:'FK',cls:'fk',name:'field_id',type:'INT → M1'},
+    {icon:'FK',cls:'fk',name:'row_id',type:'INT (nullable)'},
+    {icon:'FK',cls:'fk',name:'clone_id',type:'INT → M1'},
+    {icon:'FK',cls:'fk',name:'tree_status',type:'VARCHAR(20)'},
+    {icon:'FK',cls:'fk',name:'health_rating',type:'VARCHAR(10)'},
+    {icon:'FK',cls:'fk',name:'current_tapping_system',type:'VARCHAR(20) → M1'},
+    {icon:'FK',cls:'fk',name:'mortality_cause_code',type:'VARCHAR(30)'},
+    {icon:'·',cls:'col',name:'tree_code',type:'VARCHAR(50) UQ'},
+    {icon:'·',cls:'col',name:'planting_year / date',type:'INT / DATE'},
+    {icon:'·',cls:'col',name:'current_girth_cm',type:'NUMERIC(8,2)'},
+    {icon:'·',cls:'col',name:'current_bark_mm',type:'NUMERIC(6,2)'},
+    {icon:'·',cls:'col',name:'bark_consumption_pct',type:'NUMERIC(5,2)'},
+    {icon:'·',cls:'col',name:'current_panel',type:'VARCHAR(20)'},
+    {icon:'·',cls:'col',name:'gps_point',type:'GEOMETRY(Point)'},
+  ]},
+  { name:'tree_row', badge:'Core', badgeClass:'badge-core', columns:[
+    {icon:'PK',cls:'pk',name:'row_id',type:'SERIAL'},
+    {icon:'FK',cls:'fk',name:'field_id',type:'INT → M1'},
+    {icon:'·',cls:'col',name:'row_number',type:'INT'},
+    {icon:'·',cls:'col',name:'tree_spacing_m',type:'NUMERIC(5,2)'},
+    {icon:'·',cls:'col',name:'row_spacing_m',type:'NUMERIC(5,2)'},
+    {icon:'·',cls:'col',name:'row_line',type:'GEOMETRY(LineStr)'},
+  ]},
+  { name:'tree_growth_measurement', badge:'Core', badgeClass:'badge-core', columns:[
+    {icon:'PK',cls:'pk',name:'measurement_id',type:'BIGSERIAL'},
+    {icon:'FK',cls:'fk',name:'tree_id',type:'BIGINT'},
+    {icon:'FK',cls:'fk',name:'parameter_code',type:'VARCHAR(30)'},
+    {icon:'·',cls:'col',name:'measured_value',type:'NUMERIC(10,2)'},
+    {icon:'·',cls:'col',name:'measurement_date',type:'DATE'},
+    {icon:'·',cls:'col',name:'measurement_method',type:'VARCHAR(30)'},
+    {icon:'·',cls:'col',name:'photo_url',type:'VARCHAR(1000)'},
+  ]},
+  { name:'tree_panel_history', badge:'Core', badgeClass:'badge-core', columns:[
+    {icon:'PK',cls:'pk',name:'panel_history_id',type:'BIGSERIAL'},
+    {icon:'FK',cls:'fk',name:'tree_id',type:'BIGINT'},
+    {icon:'FK',cls:'fk',name:'tapping_system_code',type:'VARCHAR(20) → M1'},
+    {icon:'·',cls:'col',name:'panel_code',type:'VARCHAR(20)'},
+    {icon:'·',cls:'col',name:'panel_position / side',type:'VARCHAR(10)'},
+    {icon:'·',cls:'col',name:'opened_date / closed_date',type:'DATE'},
+    {icon:'·',cls:'col',name:'bark_thickness open/close',type:'NUMERIC(6,2)'},
+    {icon:'·',cls:'col',name:'bark_consumption_pct',type:'NUMERIC(5,2)'},
+    {icon:'·',cls:'col',name:'has_tpd / has_bark_rot',type:'BOOLEAN'},
+  ]},
+  { name:'tree_census_summary', badge:'Core', badgeClass:'badge-core', columns:[
+    {icon:'PK',cls:'pk',name:'census_id',type:'SERIAL'},
+    {icon:'FK',cls:'fk',name:'field_id',type:'INT → M1'},
+    {icon:'·',cls:'col',name:'census_date / year',type:'DATE / INT'},
+    {icon:'·',cls:'col',name:'total / live / tappable trees',type:'INT'},
+    {icon:'·',cls:'col',name:'diseased / dead_ytd',type:'INT'},
+    {icon:'·',cls:'col',name:'mortality_rate_pct',type:'NUMERIC(5,2)'},
+    {icon:'·',cls:'col',name:'avg / min / max girth_cm',type:'NUMERIC(8,2)'},
+  ]},
+  { name:'tree_tag', badge:'IoT', badgeClass:'badge-iot', columns:[
+    {icon:'PK',cls:'pk',name:'tag_id',type:'BIGSERIAL'},
+    {icon:'FK',cls:'fk',name:'tree_id',type:'BIGINT'},
+    {icon:'FK',cls:'fk',name:'tag_type_code',type:'VARCHAR(20)'},
+    {icon:'·',cls:'col',name:'tag_uid',type:'VARCHAR(100) UQ'},
+    {icon:'·',cls:'col',name:'installed_date',type:'DATE'},
+    {icon:'·',cls:'col',name:'is_active',type:'BOOLEAN'},
+    {icon:'·',cls:'col',name:'last_scanned_at',type:'TIMESTAMPTZ'},
+    {icon:'·',cls:'col',name:'total_scan_count',type:'INT'},
+  ]},
+  { name:'tree_health_inspection', badge:'Health', badgeClass:'badge-health', columns:[
+    {icon:'PK',cls:'pk',name:'inspection_id',type:'BIGSERIAL'},
+    {icon:'FK',cls:'fk',name:'tree_id',type:'BIGINT'},
+    {icon:'FK',cls:'fk',name:'health_rating',type:'VARCHAR(10)'},
+    {icon:'FK',cls:'fk',name:'primary_disease_id',type:'INT (nullable)'},
+    {icon:'·',cls:'col',name:'inspection_date',type:'DATE'},
+    {icon:'·',cls:'col',name:'inspection_method',type:'VARCHAR(30)'},
+    {icon:'·',cls:'col',name:'canopy/trunk/bark/root score',type:'INT (1-5)'},
+    {icon:'·',cls:'col',name:'leaf_condition',type:'VARCHAR(30)'},
+    {icon:'·',cls:'col',name:'ai_analysis_score',type:'NUMERIC(5,2)'},
+    {icon:'·',cls:'col',name:'photo_urls',type:'TEXT[]'},
+  ]},
+  { name:'tree_disease_incident', badge:'Health', badgeClass:'badge-health', columns:[
+    {icon:'PK',cls:'pk',name:'incident_id',type:'BIGSERIAL'},
+    {icon:'FK',cls:'fk',name:'tree_id',type:'BIGINT'},
+    {icon:'FK',cls:'fk',name:'disease_id',type:'INT'},
+    {icon:'FK',cls:'fk',name:'inspection_id',type:'BIGINT (nullable)'},
+    {icon:'·',cls:'col',name:'detected_date',type:'DATE'},
+    {icon:'·',cls:'col',name:'severity',type:'VARCHAR(20)'},
+    {icon:'·',cls:'col',name:'spread_risk',type:'VARCHAR(20)'},
+    {icon:'·',cls:'col',name:'status',type:'VARCHAR(20)'},
+    {icon:'·',cls:'col',name:'caused_tapping_stop',type:'BOOLEAN'},
+  ]},
+  { name:'tree_treatment_record', badge:'Health', badgeClass:'badge-health', columns:[
+    {icon:'PK',cls:'pk',name:'treatment_id',type:'BIGSERIAL'},
+    {icon:'FK',cls:'fk',name:'tree_id',type:'BIGINT'},
+    {icon:'FK',cls:'fk',name:'incident_id',type:'BIGINT (nullable)'},
+    {icon:'FK',cls:'fk',name:'treatment_code',type:'VARCHAR(30)'},
+    {icon:'·',cls:'col',name:'treatment_date',type:'DATE'},
+    {icon:'·',cls:'col',name:'dosage_amount / unit',type:'NUMERIC / VARCHAR'},
+    {icon:'·',cls:'col',name:'outcome',type:'VARCHAR(30)'},
+    {icon:'·',cls:'col',name:'treatment_cost',type:'NUMERIC(12,2)'},
+  ]},
+  { name:'tree_mortality_record', badge:'Health', badgeClass:'badge-health', columns:[
+    {icon:'PK',cls:'pk',name:'mortality_id',type:'BIGSERIAL'},
+    {icon:'FK',cls:'fk',name:'tree_id',type:'BIGINT (1:1)'},
+    {icon:'FK',cls:'fk',name:'cause_code',type:'VARCHAR(30)'},
+    {icon:'FK',cls:'fk',name:'incident_id',type:'BIGINT (nullable)'},
+    {icon:'·',cls:'col',name:'mortality_date',type:'DATE'},
+    {icon:'·',cls:'col',name:'age_at_death_years',type:'INT'},
+    {icon:'·',cls:'col',name:'estimated_yield_loss_kg',type:'NUMERIC(10,2)'},
+    {icon:'·',cls:'col',name:'replacement_planted',type:'BOOLEAN'},
+  ]},
+  { name:'tree_status_change_log', badge:'Audit', badgeClass:'badge-audit', columns:[
+    {icon:'PK',cls:'pk',name:'log_id',type:'BIGSERIAL'},
+    {icon:'FK',cls:'fk',name:'tree_id',type:'BIGINT'},
+    {icon:'FK',cls:'fk',name:'from_status / to_status',type:'VARCHAR(20)'},
+    {icon:'·',cls:'col',name:'change_date',type:'DATE'},
+    {icon:'·',cls:'col',name:'reason',type:'TEXT'},
+    {icon:'·',cls:'col',name:'blockchain_tx_hash',type:'VARCHAR(128)'},
+  ]},
+  { name:'disease_master', badge:'Lookup', badgeClass:'badge-lookup', columns:[
+    {icon:'PK',cls:'pk',name:'disease_id',type:'SERIAL'},
+    {icon:'·',cls:'col',name:'disease_code',type:'VARCHAR(30) UQ'},
+    {icon:'·',cls:'col',name:'disease_name / type',type:'VARCHAR'},
+    {icon:'·',cls:'col',name:'causal_agent',type:'VARCHAR(200)'},
+    {icon:'·',cls:'col',name:'severity_class',type:'VARCHAR(20)'},
+    {icon:'·',cls:'col',name:'is_notifiable',type:'BOOLEAN'},
+  ]},
+  { name:'lu_tree_status', badge:'Lookup', badgeClass:'badge-lookup', columns:[
+    {icon:'PK',cls:'pk',name:'status_code',type:'VARCHAR(20)'},
+    {icon:'·',cls:'col',name:'status_name',type:'VARCHAR(100)'},
+    {icon:'·',cls:'col',name:'is_tappable',type:'BOOLEAN'},
+  ]},
+  { name:'lu_health_rating', badge:'Lookup', badgeClass:'badge-lookup', columns:[
+    {icon:'PK',cls:'pk',name:'rating_code',type:'VARCHAR(10)'},
+    {icon:'·',cls:'col',name:'rating_name / score',type:'VARCHAR / INT'},
+  ]},
+  { name:'lu_growth_parameter', badge:'Lookup', badgeClass:'badge-lookup', columns:[
+    {icon:'PK',cls:'pk',name:'parameter_code',type:'VARCHAR(30)'},
+    {icon:'·',cls:'col',name:'parameter_name',type:'VARCHAR(100)'},
+    {icon:'·',cls:'col',name:'unit_of_measure',type:'VARCHAR(30)'},
+    {icon:'·',cls:'col',name:'min/max_threshold',type:'NUMERIC(10,2)'},
+  ]},
+  { name:'lu_treatment_type', badge:'Lookup', badgeClass:'badge-lookup', columns:[
+    {icon:'PK',cls:'pk',name:'treatment_code',type:'VARCHAR(30)'},
+    {icon:'·',cls:'col',name:'treatment_name / class',type:'VARCHAR'},
+    {icon:'·',cls:'col',name:'application_method',type:'VARCHAR(100)'},
+  ]},
+  { name:'lu_tag_type', badge:'Lookup', badgeClass:'badge-lookup', columns:[
+    {icon:'PK',cls:'pk',name:'tag_type_code',type:'VARCHAR(20)'},
+    {icon:'·',cls:'col',name:'tag_type_name',type:'VARCHAR(100)'},
+    {icon:'·',cls:'col',name:'technology',type:'VARCHAR(50)'},
+    {icon:'·',cls:'col',name:'read_range_m',type:'NUMERIC(6,2)'},
+  ]},
+  { name:'lu_mortality_cause', badge:'Lookup', badgeClass:'badge-lookup', columns:[
+    {icon:'PK',cls:'pk',name:'cause_code',type:'VARCHAR(30)'},
+    {icon:'·',cls:'col',name:'cause_name',type:'VARCHAR(200)'},
+    {icon:'·',cls:'col',name:'cause_category',type:'VARCHAR(30)'},
+  ]},
+];
+
+// ── Render Schema Cards ──
+const schemaGrid = document.getElementById('schemaGrid');
+tables.forEach(t => {
+  const cols = t.columns.map(c =>
+    `<div class="col-row"><span class="col-icon ${c.cls}">${c.icon}</span><span class="col-name">${c.name}</span><span class="col-type">${c.type}</span></div>`
+  ).join('');
+  schemaGrid.innerHTML += `<div class="schema-card"><div class="schema-card-header"><span class="schema-card-title">${t.name}</span><span class="schema-card-badge ${t.badgeClass}">${t.badge}</span></div><div class="schema-card-body">${cols}</div></div>`;
+});
+
+// ══════════════════════════════════════════════════════════════════
+// RELATIONSHIPS TABLE
+// ══════════════════════════════════════════════════════════════════
+const rels = [
+  {from:'tree',to:'tree_row',fk:'row_id',card:'M:1',cls:'card-1m',desc:'Many trees belong to one row'},
+  {from:'tree',to:'tree_tag',fk:'tree_id',card:'1:M',cls:'card-1m',desc:'A tree can have multiple tags over time'},
+  {from:'tree',to:'tree_growth_measurement',fk:'tree_id',card:'1:M',cls:'card-1m',desc:'Time-series growth data per tree'},
+  {from:'tree',to:'tree_panel_history',fk:'tree_id',card:'1:M',cls:'card-1m',desc:'Sequential tapping panels per tree'},
+  {from:'tree',to:'tree_health_inspection',fk:'tree_id',card:'1:M',cls:'card-1m',desc:'Periodic health inspections per tree'},
+  {from:'tree',to:'tree_disease_incident',fk:'tree_id',card:'1:M',cls:'card-1m',desc:'Disease occurrences per tree'},
+  {from:'tree',to:'tree_treatment_record',fk:'tree_id',card:'1:M',cls:'card-1m',desc:'Treatments applied to tree'},
+  {from:'tree',to:'tree_mortality_record',fk:'tree_id',card:'1:1',cls:'card-11',desc:'One mortality record per tree (unique)'},
+  {from:'tree',to:'tree_status_change_log',fk:'tree_id',card:'1:M',cls:'card-1m',desc:'Audit trail of all status changes'},
+  {from:'tree_disease_incident',to:'tree_treatment_record',fk:'incident_id',card:'1:M',cls:'card-1m',desc:'Treatments linked to disease incidents'},
+  {from:'tree_disease_incident',to:'tree_mortality_record',fk:'incident_id',card:'1:1',cls:'card-11',desc:'Disease that caused mortality'},
+  {from:'tree_health_inspection',to:'tree_disease_incident',fk:'inspection_id',card:'1:M',cls:'card-1m',desc:'Diseases discovered during inspections'},
+  {from:'disease_master',to:'tree_disease_incident',fk:'disease_id',card:'1:M',cls:'card-1m',desc:'Disease catalog reference'},
+  {from:'disease_master',to:'tree_health_inspection',fk:'primary_disease_id',card:'1:M',cls:'card-1m',desc:'Primary disease found in inspection'},
+  {from:'lu_tree_status',to:'tree',fk:'tree_status',card:'1:M',cls:'card-1m',desc:'Current tree status classification'},
+  {from:'lu_health_rating',to:'tree',fk:'health_rating',card:'1:M',cls:'card-1m',desc:'Current health rating'},
+  {from:'lu_health_rating',to:'tree_health_inspection',fk:'health_rating',card:'1:M',cls:'card-1m',desc:'Inspection health assessment'},
+  {from:'lu_growth_parameter',to:'tree_growth_measurement',fk:'parameter_code',card:'1:M',cls:'card-1m',desc:'What parameter was measured'},
+  {from:'lu_treatment_type',to:'tree_treatment_record',fk:'treatment_code',card:'1:M',cls:'card-1m',desc:'Treatment type classification'},
+  {from:'lu_tag_type',to:'tree_tag',fk:'tag_type_code',card:'1:M',cls:'card-1m',desc:'Tag technology type'},
+  {from:'lu_mortality_cause',to:'tree',fk:'mortality_cause_code',card:'1:M',cls:'card-1m',desc:'Cause of death on tree master'},
+  {from:'lu_mortality_cause',to:'tree_mortality_record',fk:'cause_code',card:'1:M',cls:'card-1m',desc:'Detailed mortality cause'},
+  // Cross-module
+  {from:'plantation (M1)',to:'tree',fk:'plantation_id',card:'1:M',cls:'card-ext',desc:'Trees belong to a plantation'},
+  {from:'field (M1)',to:'tree',fk:'field_id',card:'1:M',cls:'card-ext',desc:'Trees belong to a field/block'},
+  {from:'field (M1)',to:'tree_row',fk:'field_id',card:'1:M',cls:'card-ext',desc:'Rows belong to a field'},
+  {from:'field (M1)',to:'tree_census_summary',fk:'field_id',card:'1:M',cls:'card-ext',desc:'Census summaries per field'},
+  {from:'clone_master (M1)',to:'tree',fk:'clone_id',card:'1:M',cls:'card-ext',desc:'Clone identity of the tree'},
+  {from:'nursery (M1)',to:'tree',fk:'nursery_source_id',card:'1:M',cls:'card-ext',desc:'Nursery where tree originated'},
+  {from:'lu_tapping_system (M1)',to:'tree',fk:'current_tapping_system',card:'1:M',cls:'card-ext',desc:'Current tapping system on tree'},
+  {from:'lu_tapping_system (M1)',to:'tree_panel_history',fk:'tapping_system_code',card:'1:M',cls:'card-ext',desc:'Tapping system per panel'},
+];
+
+const relTable = document.getElementById('relTable');
+relTable.innerHTML = `<thead><tr><th>From</th><th>To</th><th>FK Column</th><th>Card.</th><th>Description</th></tr></thead>
+<tbody>${rels.map(r=>`<tr><td class="mono">${r.from}</td><td class="mono">${r.to}</td><td class="mono">${r.fk}</td>
+<td><span class="cardinality-badge ${r.cls}">${r.card}</span></td><td style="color:var(--text-dim)">${r.desc}</td></tr>`).join('')}</tbody>`;
+
+// ══════════════════════════════════════════════════════════════════
+// ER DIAGRAM (SVG)
+// ══════════════════════════════════════════════════════════════════
+function renderER() {
+  const W=1260, H=980;
+  const E = {
+    // Module 1 references (top, dashed border)
+    plantation: {x:40,y:20,w:140,h:42,color:'#fbbf24',bg:'rgba(251,191,36,0.06)',label:'plantation',sub:'M1'},
+    field:      {x:220,y:20,w:120,h:42,color:'#fbbf24',bg:'rgba(251,191,36,0.06)',label:'field',sub:'M1'},
+    clone:      {x:380,y:20,w:140,h:42,color:'#fbbf24',bg:'rgba(251,191,36,0.06)',label:'clone_master',sub:'M1'},
+    nursery:    {x:560,y:20,w:120,h:42,color:'#fbbf24',bg:'rgba(251,191,36,0.06)',label:'nursery',sub:'M1'},
+    tap_sys:    {x:720,y:20,w:160,h:42,color:'#fbbf24',bg:'rgba(251,191,36,0.06)',label:'lu_tapping_system',sub:'M1'},
+    // Core
+    tree_row:   {x:80,y:140,w:150,h:50,color:'#4ade80',bg:'rgba(74,222,128,0.07)',label:'tree_row',sub:'Row org'},
+    tree:       {x:350,y:150,w:200,h:66,color:'#4ade80',bg:'rgba(74,222,128,0.06)',label:'tree',sub:'Core Tree Record'},
+    growth:     {x:40,y:300,w:230,h:50,color:'#4ade80',bg:'rgba(74,222,128,0.07)',label:'tree_growth_measurement',sub:'Time-series data'},
+    panel:      {x:40,y:420,w:200,h:50,color:'#4ade80',bg:'rgba(74,222,128,0.07)',label:'tree_panel_history',sub:'Bark panels'},
+    census:     {x:40,y:540,w:200,h:50,color:'#4ade80',bg:'rgba(74,222,128,0.07)',label:'tree_census_summary',sub:'Field-level agg'},
+    // IoT
+    tag:        {x:680,y:150,w:160,h:50,color:'#22d3ee',bg:'rgba(34,211,238,0.07)',label:'tree_tag',sub:'NFC / RFID / QR'},
+    // Health / Disease
+    inspection: {x:350,y:340,w:220,h:56,color:'#fb7185',bg:'rgba(251,113,133,0.07)',label:'tree_health_inspection',sub:'Periodic assessments'},
+    incident:   {x:660,y:340,w:220,h:56,color:'#fb7185',bg:'rgba(251,113,133,0.07)',label:'tree_disease_incident',sub:'Disease occurrences'},
+    treatment:  {x:660,y:480,w:210,h:50,color:'#fb7185',bg:'rgba(251,113,133,0.07)',label:'tree_treatment_record',sub:'Curative & preventive'},
+    mortality:  {x:350,y:510,w:210,h:50,color:'#fb7185',bg:'rgba(251,113,133,0.07)',label:'tree_mortality_record',sub:'Death records'},
+    // Audit
+    status_log: {x:680,y:610,w:210,h:50,color:'#fbbf24',bg:'rgba(251,191,36,0.07)',label:'tree_status_change_log',sub:'Blockchain-anchored'},
+    // Lookups (right side)
+    lu_status:  {x:980,y:100,w:160,h:40,color:'#60a5fa',bg:'rgba(96,165,250,0.06)',label:'lu_tree_status',sub:'Lookup'},
+    lu_health:  {x:980,y:170,w:160,h:40,color:'#60a5fa',bg:'rgba(96,165,250,0.06)',label:'lu_health_rating',sub:'Lookup'},
+    lu_growth:  {x:980,y:300,w:170,h:40,color:'#60a5fa',bg:'rgba(96,165,250,0.06)',label:'lu_growth_parameter',sub:'Lookup'},
+    lu_tag:     {x:980,y:240,w:150,h:40,color:'#60a5fa',bg:'rgba(96,165,250,0.06)',label:'lu_tag_type',sub:'Lookup'},
+    lu_treat:   {x:980,y:480,w:170,h:40,color:'#60a5fa',bg:'rgba(96,165,250,0.06)',label:'lu_treatment_type',sub:'Lookup'},
+    lu_mort:    {x:980,y:550,w:170,h:40,color:'#60a5fa',bg:'rgba(96,165,250,0.06)',label:'lu_mortality_cause',sub:'Lookup'},
+    disease_m:  {x:980,y:380,w:160,h:40,color:'#60a5fa',bg:'rgba(96,165,250,0.06)',label:'disease_master',sub:'Catalog'},
+  };
+
+  function anchor(e,side){
+    switch(side){
+      case'top':return{x:e.x+e.w/2,y:e.y};
+      case'bottom':return{x:e.x+e.w/2,y:e.y+e.h};
+      case'left':return{x:e.x,y:e.y+e.h/2};
+      case'right':return{x:e.x+e.w,y:e.y+e.h/2};
+    }
+  }
+
+  const conns = [
+    // M1 → Core
+    ['plantation','bottom','tree','top','#fbbf24',true],
+    ['field','bottom','tree_row','top','#fbbf24',true],
+    ['field','bottom','tree','top','#fbbf24',true],
+    ['clone','bottom','tree','top','#fbbf24',true],
+    ['nursery','bottom','tree','top','#fbbf24',true],
+    ['tap_sys','bottom','tree','top','#fbbf24',true],
+    ['field','bottom','census','top','#fbbf24',true],
+    // Core internal
+    ['tree_row','right','tree','left','#4ade80',false],
+    ['tree','left','growth','top','#4ade80',false],
+    ['tree','left','panel','top','#4ade80',false],
+    ['tree','right','tag','left','#22d3ee',false],
+    ['tree','bottom','inspection','top','#fb7185',false],
+    ['tree','bottom','mortality','top','#fb7185',false],
+    ['tree','right','incident','top','#fb7185',false],
+    ['tree','right','status_log','top','#fbbf24',false],
+    // Health chain
+    ['inspection','right','incident','left','#fb7185',false],
+    ['incident','bottom','treatment','top','#fb7185',false],
+    ['incident','left','mortality','right','#fb7185',false],
+    // Lookups
+    ['lu_status','left','tree','right','#60a5fa',true],
+    ['lu_health','left','tree','right','#60a5fa',true],
+    ['lu_growth','left','growth','right','#60a5fa',true],
+    ['lu_tag','left','tag','right','#60a5fa',true],
+    ['lu_treat','left','treatment','right','#60a5fa',true],
+    ['lu_mort','left','mortality','right','#60a5fa',true],
+    ['disease_m','left','incident','right','#60a5fa',true],
+  ];
+
+  let svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">
+    <defs>
+      <marker id="a-green" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#4ade80" opacity=".7"/></marker>
+      <marker id="a-blue" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#60a5fa" opacity=".7"/></marker>
+      <marker id="a-amber" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#fbbf24" opacity=".7"/></marker>
+      <marker id="a-rose" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#fb7185" opacity=".7"/></marker>
+      <marker id="a-cyan" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#22d3ee" opacity=".7"/></marker>
+    </defs>
+    <!-- M1 zone -->
+    <rect x="20" y="8" width="880" height="60" rx="8" fill="#fbbf24" fill-opacity="0.03" stroke="#fbbf24" stroke-width="1" stroke-dasharray="6,4" opacity="0.3"/>
+    <text x="910" y="44" fill="#fbbf24" font-family="JetBrains Mono,monospace" font-size="10" opacity="0.5">MODULE 1</text>`;
+
+  // Draw connections
+  conns.forEach(([fk,fs,tk,ts,color,dashed])=>{
+    const a=anchor(E[fk],fs), b=anchor(E[tk],ts);
+    const mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
+    let path;
+    if(fs==='bottom'&&ts==='top') path=`M${a.x},${a.y} C${a.x},${my} ${b.x},${my} ${b.x},${b.y}`;
+    else if(fs==='right'&&ts==='left') path=`M${a.x},${a.y} C${mx},${a.y} ${mx},${b.y} ${b.x},${b.y}`;
+    else if(fs==='left'&&ts==='left') path=`M${a.x},${a.y} C${a.x-30},${a.y} ${b.x-30},${b.y} ${b.x},${b.y}`;
+    else if(fs==='left'&&ts==='top') path=`M${a.x},${a.y} C${a.x-40},${a.y} ${b.x},${a.y} ${b.x},${b.y}`;
+    else if(fs==='left'&&ts==='right') path=`M${a.x},${a.y} C${mx},${a.y} ${mx},${b.y} ${b.x},${b.y}`;
+    else if(fs==='right'&&ts==='top') path=`M${a.x},${a.y} C${a.x+40},${a.y} ${b.x},${a.y} ${b.x},${b.y}`;
+    else if(fs==='bottom'&&ts==='left') path=`M${a.x},${a.y} C${a.x},${b.y} ${b.x-20},${b.y} ${b.x},${b.y}`;
+    else path=`M${a.x},${a.y} C${mx},${a.y} ${mx},${b.y} ${b.x},${b.y}`;
+    const mc=color==='#4ade80'?'green':color==='#60a5fa'?'blue':color==='#fbbf24'?'amber':color==='#22d3ee'?'cyan':'rose';
+    svg+=`<path d="${path}" fill="none" stroke="${color}" stroke-width="1.3" opacity="0.4" ${dashed?'stroke-dasharray="5,4"':''} marker-end="url(#a-${mc})"/>`;
+  });
+
+  // Draw entities
+  Object.values(E).forEach(e=>{
+    const isM1=e.sub==='M1';
+    svg+=`<rect x="${e.x}" y="${e.y}" width="${e.w}" height="${e.h}" rx="8" fill="${e.bg}" stroke="${e.color}" stroke-width="${isM1?'1':'1.5'}" ${isM1?'stroke-dasharray="4,3"':''}/>`;
+    svg+=`<text x="${e.x+e.w/2}" y="${e.y+(e.h>50?26:20)}" text-anchor="middle" fill="${e.color}" font-family="JetBrains Mono,monospace" font-size="${e.h>50?'12':'11'}" font-weight="600">${e.label}</text>`;
+    if(e.sub&&!isM1) svg+=`<text x="${e.x+e.w/2}" y="${e.y+(e.h>50?43:35)}" text-anchor="middle" fill="#8890a6" font-family="DM Sans,sans-serif" font-size="9.5">${e.sub}</text>`;
+  });
+
+  svg+=`</svg>`;
+  document.getElementById('erDiagram').innerHTML=svg;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// LIFECYCLE FLOW DIAGRAM
+// ══════════════════════════════════════════════════════════════════
+function renderFlow() {
+  const W=1160, H=700;
+  let svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">
+    <defs>
+      <marker id="fl-g" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#4ade80" opacity=".8"/></marker>
+      <marker id="fl-a" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#fbbf24" opacity=".8"/></marker>
+      <marker id="fl-r" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#fb7185" opacity=".8"/></marker>
+    </defs>`;
+
+  // Phase lanes
+  const lanes=[
+    {x:30,w:200,label:'SEEDLING',color:'#22d3ee'},
+    {x:250,w:200,label:'IMMATURE',color:'#fbbf24'},
+    {x:470,w:210,label:'TAPPING / MATURE',color:'#4ade80'},
+    {x:700,w:200,label:'HEALTH EVENTS',color:'#fb7185'},
+    {x:920,w:210,label:'END OF LIFE',color:'#a78bfa'},
+  ];
+  lanes.forEach(l=>{
+    svg+=`<rect x="${l.x}" y="55" width="${l.w}" height="590" rx="12" fill="${l.color}" fill-opacity=".03" stroke="${l.color}" stroke-width="1" opacity=".2"/>`;
+    svg+=`<text x="${l.x+l.w/2}" y="40" text-anchor="middle" fill="${l.color}" font-family="JetBrains Mono,monospace" font-size="11" font-weight="600" letter-spacing="1.5" opacity=".7">${l.label}</text>`;
+  });
+
+  // Boxes
+  const B=[
+    // Seedling
+    {x:50,y:90,w:160,h:52,label:'Nursery Origin',sub:'nursery_source_id',color:'#22d3ee'},
+    {x:50,y:180,w:160,h:52,label:'Tree Registered',sub:'tree (SEEDLING)',color:'#22d3ee'},
+    {x:50,y:280,w:160,h:52,label:'NFC Tag Installed',sub:'tree_tag',color:'#22d3ee'},
+    {x:50,y:380,w:160,h:44,label:'Girth Measured',sub:'tree_growth_measurement',color:'#22d3ee'},
+    // Immature
+    {x:270,y:140,w:160,h:52,label:'Growing Phase',sub:'tree (IMMATURE)',color:'#fbbf24'},
+    {x:270,y:260,w:160,h:52,label:'Girth Monitoring',sub:'≥ 50cm = tappable',color:'#fbbf24'},
+    {x:270,y:380,w:160,h:44,label:'Health Inspections',sub:'tree_health_inspection',color:'#fbbf24'},
+    // Tapping
+    {x:490,y:100,w:170,h:56,label:'Opened for Tapping',sub:'tree (TAPPING)',color:'#4ade80'},
+    {x:490,y:210,w:170,h:52,label:'Panel Progression',sub:'tree_panel_history',color:'#4ade80'},
+    {x:490,y:320,w:170,h:52,label:'Yield Measurement',sub:'LATEX_YIELD param',color:'#4ade80'},
+    {x:490,y:430,w:170,h:44,label:'Bark Assessment',sub:'BARK_CONSUMPTION',color:'#4ade80'},
+    {x:490,y:530,w:170,h:44,label:'Resting Period',sub:'tree (RESTING)',color:'#4ade80'},
+    // Health
+    {x:720,y:120,w:160,h:52,label:'Disease Detected',sub:'tree_disease_incident',color:'#fb7185'},
+    {x:720,y:230,w:160,h:52,label:'Treatment Applied',sub:'tree_treatment_record',color:'#fb7185'},
+    {x:720,y:340,w:160,h:52,label:'AI Photo Analysis',sub:'ai_analysis_score',color:'#fb7185'},
+    {x:720,y:450,w:160,h:44,label:'TPD / Bark Rot',sub:'Panel-specific issues',color:'#fb7185'},
+    // End of Life
+    {x:940,y:120,w:170,h:52,label:'Wind Damaged',sub:'tree (WIND_DAMAGE)',color:'#a78bfa'},
+    {x:940,y:230,w:170,h:56,label:'Dead / Removed',sub:'tree_mortality_record',color:'#a78bfa'},
+    {x:940,y:350,w:170,h:52,label:'Status Change Log',sub:'blockchain_tx_hash',color:'#a78bfa'},
+    {x:940,y:460,w:170,h:52,label:'Replacement Tree',sub:'replacement_tree_id',color:'#a78bfa'},
+    {x:940,y:560,w:170,h:44,label:'Census Updated',sub:'tree_census_summary',color:'#a78bfa'},
+  ];
+
+  B.forEach(b=>{
+    svg+=`<rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="8" fill="${b.color}" fill-opacity=".08" stroke="${b.color}" stroke-width="1.2"/>`;
+    svg+=`<text x="${b.x+b.w/2}" y="${b.y+20}" text-anchor="middle" fill="${b.color}" font-family="JetBrains Mono,monospace" font-size="11" font-weight="600">${b.label}</text>`;
+    if(b.sub) svg+=`<text x="${b.x+b.w/2}" y="${b.y+36}" text-anchor="middle" fill="#8890a6" font-family="DM Sans,sans-serif" font-size="9.5">${b.sub}</text>`;
+  });
+
+  // Flow arrows
+  const arrows=[
+    // Seedling → Immature
+    {x1:210,y1:206,x2:270,y2:166,c:'#4ade80',m:'fl-g'},
+    {x1:210,y1:306,x2:270,y2:286,c:'#4ade80',m:'fl-g'},
+    {x1:210,y1:400,x2:270,y2:400,c:'#4ade80',m:'fl-g'},
+    // Immature → Tapping
+    {x1:430,y1:166,x2:490,y2:128,c:'#fbbf24',m:'fl-a'},
+    {x1:430,y1:286,x2:490,y2:236,c:'#fbbf24',m:'fl-a'},
+    // Tapping internal
+    {x1:575,y1:156,x2:575,y2:210,c:'#4ade80',m:'fl-g'},
+    {x1:575,y1:262,x2:575,y2:320,c:'#4ade80',m:'fl-g'},
+    {x1:575,y1:372,x2:575,y2:430,c:'#4ade80',m:'fl-g'},
+    {x1:575,y1:474,x2:575,y2:530,c:'#4ade80',m:'fl-g'},
+    // Tapping → Health
+    {x1:660,y1:128,x2:720,y2:146,c:'#fb7185',m:'fl-r'},
+    {x1:660,y1:345,x2:720,y2:366,c:'#fb7185',m:'fl-r'},
+    // Health internal
+    {x1:800,y1:172,x2:800,y2:230,c:'#fb7185',m:'fl-r'},
+    {x1:800,y1:282,x2:800,y2:340,c:'#fb7185',m:'fl-r'},
+    // Health → End of Life
+    {x1:880,y1:146,x2:940,y2:146,c:'#a78bfa',m:'fl-r'},
+    {x1:880,y1:256,x2:940,y2:258,c:'#a78bfa',m:'fl-r'},
+    // End of Life internal
+    {x1:1025,y1:172,x2:1025,y2:230,c:'#a78bfa',m:'fl-r'},
+    {x1:1025,y1:286,x2:1025,y2:350,c:'#a78bfa',m:'fl-r'},
+    {x1:1025,y1:402,x2:1025,y2:460,c:'#a78bfa',m:'fl-r'},
+    {x1:1025,y1:512,x2:1025,y2:560,c:'#a78bfa',m:'fl-r'},
+    // Resting loops back
+    {x1:490,y1:552,x2:490,y2:128,c:'#4ade80',m:'fl-g'},
+  ];
+
+  arrows.forEach(a=>{
+    if(a.x1===490&&a.y1===552){
+      // Curved loop-back arrow for resting → tapping
+      svg+=`<path d="M${a.x1},${a.y1} C${a.x1-60},${a.y1} ${a.x2-60},${a.y2} ${a.x2},${a.y2}" fill="none" stroke="${a.c}" stroke-width="1.3" opacity=".4" stroke-dasharray="5,4" marker-end="url(#${a.m})"/>`;
+      svg+=`<text x="445" y="360" fill="#4ade80" font-family="DM Sans" font-size="9" opacity=".6" transform="rotate(-90,445,360)">resumes tapping</text>`;
+    } else {
+      svg+=`<line x1="${a.x1}" y1="${a.y1}" x2="${a.x2}" y2="${a.y2}" stroke="${a.c}" stroke-width="1.3" opacity=".45" marker-end="url(#${a.m})"/>`;
+    }
+  });
+
+  // Phase labels
+  svg+=`<text x="240" y="120" fill="#fbbf24" font-family="DM Sans" font-size="9" opacity=".6">status → IMMATURE</text>`;
+  svg+=`<text x="460" y="85" fill="#4ade80" font-family="DM Sans" font-size="9" opacity=".6">girth ≥ 50cm</text>`;
+
+  svg+=`</svg>`;
+  document.getElementById('flowDiagram').innerHTML=svg;
+}
+
+renderER();
+renderFlow();
+</script>
+</body>
+</html>

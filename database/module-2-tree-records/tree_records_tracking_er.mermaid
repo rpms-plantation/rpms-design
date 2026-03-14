@@ -1,0 +1,276 @@
+---
+title: Module 2 — Tree Records & Tracking — Entity Relationship Diagram
+---
+erDiagram
+    %% ═══════════════════════════════════════════
+    %% CROSS-MODULE REFERENCES (Module 1)
+    %% ═══════════════════════════════════════════
+    plantation ||--o{ tree : "contains"
+    field ||--o{ tree : "contains"
+    field ||--o{ tree_row : "has rows"
+    field ||--o{ tree_census_summary : "census per field"
+    clone_master ||--o{ tree : "planted with"
+    clone_master ||--o{ tree : "rootstock clone"
+    nursery ||--o{ tree : "source nursery"
+    lu_tapping_system ||--o{ tree : "current system"
+    lu_tapping_system ||--o{ tree_panel_history : "panel system"
+
+    %% ═══════════════════════════════════════════
+    %% CORE RELATIONSHIPS
+    %% ═══════════════════════════════════════════
+    tree_row ||--o{ tree : "contains trees"
+    tree ||--o{ tree_tag : "has tags"
+    tree ||--o{ tree_growth_measurement : "measurements"
+    tree ||--o{ tree_panel_history : "panel history"
+    tree ||--o{ tree_health_inspection : "inspections"
+    tree ||--o{ tree_disease_incident : "disease events"
+    tree ||--o{ tree_treatment_record : "treatments"
+    tree ||--|| tree_mortality_record : "mortality (1:1)"
+    tree ||--o{ tree_status_change_log : "status audit"
+
+    %% ═══════════════════════════════════════════
+    %% HEALTH CHAIN RELATIONSHIPS
+    %% ═══════════════════════════════════════════
+    tree_health_inspection ||--o{ tree_disease_incident : "discovers"
+    tree_disease_incident ||--o{ tree_treatment_record : "treated by"
+    tree_disease_incident ||--o| tree_mortality_record : "caused death"
+
+    %% ═══════════════════════════════════════════
+    %% LOOKUP RELATIONSHIPS
+    %% ═══════════════════════════════════════════
+    lu_tree_status ||--o{ tree : "classifies"
+    lu_tree_status ||--o{ tree_status_change_log : "from/to status"
+    lu_health_rating ||--o{ tree : "rates"
+    lu_health_rating ||--o{ tree_health_inspection : "assessment"
+    lu_growth_parameter ||--o{ tree_growth_measurement : "parameter type"
+    lu_tag_type ||--o{ tree_tag : "tag technology"
+    lu_treatment_type ||--o{ tree_treatment_record : "treatment class"
+    lu_mortality_cause ||--o{ tree : "cause on master"
+    lu_mortality_cause ||--o{ tree_mortality_record : "detailed cause"
+    disease_master ||--o{ tree_disease_incident : "disease catalog"
+    disease_master ||--o{ tree_health_inspection : "primary disease"
+
+    %% ═══════════════════════════════════════════
+    %% TABLE DEFINITIONS
+    %% ═══════════════════════════════════════════
+
+    tree {
+        bigserial tree_id PK
+        int plantation_id FK
+        int field_id FK
+        int row_id FK
+        varchar tree_code UK
+        int clone_id FK
+        boolean is_budded
+        int rootstock_clone_id FK
+        date planting_date
+        int planting_year
+        varchar planting_method
+        int nursery_source_id FK
+        varchar tree_status FK
+        varchar health_rating FK
+        numeric current_girth_cm
+        numeric current_bark_mm
+        numeric bark_consumption_pct
+        date tapping_start_date
+        varchar current_panel
+        varchar current_tapping_system FK
+        int panels_exhausted
+        geometry gps_point
+        date mortality_date
+        varchar mortality_cause_code FK
+    }
+
+    tree_row {
+        serial row_id PK
+        int field_id FK
+        int row_number
+        varchar row_direction
+        numeric tree_spacing_m
+        numeric row_spacing_m
+        int number_of_trees
+        geometry row_line
+    }
+
+    tree_tag {
+        bigserial tag_id PK
+        bigint tree_id FK
+        varchar tag_uid UK
+        varchar tag_type_code FK
+        date installed_date
+        boolean is_active
+        timestamptz last_scanned_at
+        int total_scan_count
+    }
+
+    tree_growth_measurement {
+        bigserial measurement_id PK
+        bigint tree_id FK
+        varchar parameter_code FK
+        numeric measured_value
+        varchar measurement_unit
+        date measurement_date
+        varchar measurement_method
+        boolean is_below_threshold
+        varchar photo_url
+    }
+
+    tree_panel_history {
+        bigserial panel_history_id PK
+        bigint tree_id FK
+        varchar panel_code
+        varchar panel_position
+        varchar panel_side
+        varchar tapping_system_code FK
+        date opened_date
+        date closed_date
+        numeric bark_thickness_at_open_mm
+        numeric bark_thickness_at_close_mm
+        numeric bark_consumption_pct
+        numeric avg_daily_yield_ml
+        boolean has_tpd
+        boolean has_bark_rot
+        varchar status
+    }
+
+    tree_health_inspection {
+        bigserial inspection_id PK
+        bigint tree_id FK
+        date inspection_date
+        varchar inspector_name
+        varchar inspection_method
+        varchar health_rating FK
+        int canopy_score
+        int trunk_score
+        int bark_score
+        int root_zone_score
+        varchar leaf_condition
+        varchar latex_flow_status
+        boolean disease_detected
+        int primary_disease_id FK
+        numeric ai_analysis_score
+        text ai_analysis_notes
+    }
+
+    tree_disease_incident {
+        bigserial incident_id PK
+        bigint tree_id FK
+        int disease_id FK
+        date detected_date
+        varchar detection_method
+        varchar severity
+        numeric affected_area_pct
+        varchar spread_risk
+        bigint inspection_id FK
+        varchar status
+        date resolved_date
+        boolean caused_tapping_stop
+    }
+
+    tree_treatment_record {
+        bigserial treatment_id PK
+        bigint tree_id FK
+        bigint incident_id FK
+        varchar treatment_code FK
+        date treatment_date
+        varchar product_name
+        numeric dosage_amount
+        varchar application_area
+        varchar applied_by
+        varchar outcome
+        numeric treatment_cost
+    }
+
+    tree_mortality_record {
+        bigserial mortality_id PK
+        bigint tree_id FK "UNIQUE"
+        date mortality_date
+        varchar cause_code FK
+        bigint incident_id FK
+        int age_at_death_years
+        numeric girth_at_death_cm
+        boolean tree_removed
+        boolean replacement_planted
+        bigint replacement_tree_id FK
+        numeric estimated_yield_loss_kg
+    }
+
+    tree_status_change_log {
+        bigserial log_id PK
+        bigint tree_id FK
+        date change_date
+        varchar from_status FK
+        varchar to_status FK
+        text reason
+        varchar blockchain_tx_hash
+        bigint blockchain_block_no
+    }
+
+    tree_census_summary {
+        serial census_id PK
+        int field_id FK
+        date census_date
+        int census_year
+        int total_trees
+        int live_trees
+        int tappable_trees
+        int trees_under_tapping
+        int diseased_trees
+        int dead_trees_ytd
+        numeric mortality_rate_pct
+        numeric avg_girth_cm
+    }
+
+    disease_master {
+        serial disease_id PK
+        varchar disease_code UK
+        varchar disease_name
+        varchar disease_type
+        varchar causal_agent
+        varchar affected_part
+        varchar severity_class
+        text symptoms
+        text recommended_treatment
+        boolean is_notifiable
+    }
+
+    lu_tree_status {
+        varchar status_code PK
+        varchar status_name
+        boolean is_tappable
+        int display_order
+    }
+
+    lu_health_rating {
+        varchar rating_code PK
+        varchar rating_name
+        int rating_score
+    }
+
+    lu_growth_parameter {
+        varchar parameter_code PK
+        varchar parameter_name
+        varchar unit_of_measure
+        numeric min_threshold
+        numeric max_threshold
+    }
+
+    lu_tag_type {
+        varchar tag_type_code PK
+        varchar tag_type_name
+        varchar technology
+        numeric read_range_m
+    }
+
+    lu_treatment_type {
+        varchar treatment_code PK
+        varchar treatment_name
+        varchar treatment_class
+        varchar application_method
+    }
+
+    lu_mortality_cause {
+        varchar cause_code PK
+        varchar cause_name
+        varchar cause_category
+    }

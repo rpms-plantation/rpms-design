@@ -1,0 +1,303 @@
+---
+title: Module 4 — Workforce Management — Entity Relationship Diagram
+---
+erDiagram
+    %% ═══════════════════════════════════════════
+    %% CROSS-MODULE REFERENCES (M1)
+    %% ═══════════════════════════════════════════
+    plantation ||--o{ worker : "employs"
+    plantation ||--o{ gang : "has gangs"
+    division ||--o{ worker : "division assignment"
+    field ||--o{ worker : "primary field"
+    field ||--o{ gang : "primary field"
+    field ||--o{ worker_field_assignment : "assigned to"
+    field ||--o{ worker_safety_incident : "incident location"
+    plantation ||--o{ worker_safety_incident : "incident at"
+    plantation ||--o{ worker_status_change_log : "transfer from/to"
+
+    %% ═══════════════════════════════════════════
+    %% CORE RELATIONSHIPS
+    %% ═══════════════════════════════════════════
+    worker ||--o{ worker : "reports_to (self-ref)"
+    worker ||--o| gang : "leads gang"
+    gang ||--o{ worker : "members"
+    worker ||--o{ worker_skill : "has skills"
+    worker ||--o{ worker_field_assignment : "field history"
+    worker ||--o{ worker_next_of_kin : "dependents"
+    worker ||--o{ worker_document : "documents"
+    worker ||--o{ worker_leave : "leave requests"
+    worker ||--o{ worker_leave_balance : "leave balances"
+    worker ||--o{ worker_training : "training records"
+    worker ||--o{ worker_pay_structure : "pay components"
+    worker ||--o{ worker_safety_incident : "incidents"
+    worker ||--o{ worker_status_change_log : "status audit"
+    worker ||--o{ worker_leave : "approves (as manager)"
+    gang ||--o{ worker_field_assignment : "gang assignments"
+
+    %% ═══════════════════════════════════════════
+    %% LOOKUP RELATIONSHIPS
+    %% ═══════════════════════════════════════════
+    lu_worker_category ||--o{ worker : "role"
+    lu_employment_type ||--o{ worker : "employment type"
+    lu_worker_status ||--o{ worker : "current status"
+    lu_worker_status ||--o{ worker_status_change_log : "from/to status"
+    lu_skill ||--o{ worker_skill : "skill type"
+    lu_proficiency_level ||--o{ worker_skill : "proficiency"
+    lu_leave_type ||--o{ worker_leave : "leave type"
+    lu_leave_type ||--o{ worker_leave_balance : "balance type"
+    lu_relationship_type ||--o{ worker_next_of_kin : "relationship"
+    lu_document_type ||--o{ worker_document : "doc type"
+    lu_pay_component ||--o{ worker_pay_structure : "pay component"
+    lu_training_type ||--o{ worker_training : "training type"
+
+    %% ═══════════════════════════════════════════
+    %% TABLE DEFINITIONS
+    %% ═══════════════════════════════════════════
+
+    worker {
+        serial worker_id PK
+        varchar employee_code UK
+        varchar first_name
+        varchar last_name
+        varchar full_name "GENERATED"
+        date date_of_birth
+        varchar gender
+        varchar national_id
+        varchar nationality
+        varchar mobile_phone
+        varchar email
+        text permanent_address
+        int plantation_id FK
+        int division_id FK
+        varchar category_code FK
+        varchar employment_type_code FK
+        varchar worker_status FK
+        date hire_date
+        date probation_end_date
+        date confirmation_date
+        date termination_date
+        int reports_to_id FK "self-ref"
+        int primary_field_id FK
+        int assigned_gang_id FK
+        numeric base_pay_amount
+        varchar pay_currency
+        varchar pay_frequency
+        varchar bank_name
+        varchar bank_account_no
+        varchar biometric_id
+        varchar nfc_badge_uid
+        varchar gps_wearable_uid
+        varchar photo_url
+    }
+
+    gang {
+        serial gang_id PK
+        int plantation_id FK
+        int division_id FK
+        varchar gang_code UK
+        varchar gang_name
+        int leader_worker_id FK
+        int primary_field_id FK
+        int[] secondary_field_ids
+        int target_size
+        int current_size
+        varchar status
+    }
+
+    worker_skill {
+        serial skill_id PK
+        int worker_id FK
+        varchar skill_code FK
+        varchar proficiency_level FK
+        date assessed_date
+        varchar assessed_by
+        boolean is_certified
+        varchar certification_number
+        date certification_expiry
+    }
+
+    worker_field_assignment {
+        serial assignment_id PK
+        int worker_id FK
+        int field_id FK
+        int gang_id FK
+        varchar assignment_type
+        date effective_from
+        date effective_to
+        varchar assigned_by
+    }
+
+    worker_next_of_kin {
+        serial kin_id PK
+        int worker_id FK
+        varchar kin_name
+        varchar relationship_code FK
+        date date_of_birth
+        varchar mobile_phone
+        boolean is_emergency_contact
+        boolean is_beneficiary
+        numeric beneficiary_pct
+    }
+
+    worker_document {
+        serial document_id PK
+        int worker_id FK
+        varchar doc_type_code FK
+        varchar document_number
+        date issued_date
+        date expiry_date
+        varchar issuing_authority
+        varchar file_url
+        boolean is_verified
+        varchar status
+    }
+
+    worker_leave {
+        serial leave_id PK
+        int worker_id FK
+        varchar leave_type_code FK
+        date leave_start_date
+        date leave_end_date
+        int total_days
+        text reason
+        varchar approval_status
+        int approved_by FK "worker_id"
+        timestamptz approved_at
+        varchar medical_cert_url
+    }
+
+    worker_leave_balance {
+        serial balance_id PK
+        int worker_id FK
+        varchar leave_type_code FK
+        int balance_year
+        numeric entitled_days
+        numeric taken_days
+        numeric pending_days
+        numeric remaining_days "GENERATED"
+        numeric carried_forward
+    }
+
+    worker_training {
+        serial training_id PK
+        int worker_id FK
+        varchar training_type_code FK
+        varchar training_title
+        date start_date
+        date end_date
+        int duration_days
+        varchar trainer_name
+        varchar training_method
+        numeric assessment_score
+        boolean passed
+        varchar certificate_number
+        date certificate_expiry
+        numeric training_cost
+    }
+
+    worker_pay_structure {
+        serial pay_structure_id PK
+        int worker_id FK
+        varchar component_code FK
+        numeric amount
+        varchar currency_code
+        varchar frequency
+        date effective_from
+        date effective_to
+    }
+
+    worker_safety_incident {
+        serial incident_id PK
+        int worker_id FK
+        int plantation_id FK
+        int field_id FK
+        date incident_date
+        time incident_time
+        varchar incident_type
+        varchar severity
+        text description
+        varchar body_part_affected
+        boolean first_aid_given
+        boolean hospital_referral
+        int days_lost
+        text root_cause
+        text corrective_action
+        boolean reported_to_authority
+    }
+
+    worker_status_change_log {
+        serial log_id PK
+        int worker_id FK
+        date change_date
+        varchar from_status FK
+        varchar to_status FK
+        text reason
+        date effective_date
+        int from_plantation_id FK
+        int to_plantation_id FK
+        varchar blockchain_tx_hash
+    }
+
+    lu_worker_category {
+        varchar category_code PK
+        varchar category_name
+        varchar category_group
+    }
+
+    lu_employment_type {
+        varchar employment_type_code PK
+        varchar employment_type_name
+    }
+
+    lu_worker_status {
+        varchar status_code PK
+        varchar status_name
+        boolean is_active_duty
+    }
+
+    lu_skill {
+        varchar skill_code PK
+        varchar skill_name
+        varchar skill_category
+    }
+
+    lu_proficiency_level {
+        varchar level_code PK
+        varchar level_name
+        int level_score
+    }
+
+    lu_leave_type {
+        varchar leave_type_code PK
+        varchar leave_type_name
+        boolean is_paid
+        int max_days_per_year
+        boolean requires_medical_cert
+    }
+
+    lu_relationship_type {
+        varchar relationship_code PK
+        varchar relationship_name
+    }
+
+    lu_document_type {
+        varchar doc_type_code PK
+        varchar doc_type_name
+        boolean is_mandatory
+        int validity_months
+    }
+
+    lu_pay_component {
+        varchar component_code PK
+        varchar component_name
+        varchar component_type
+        boolean is_taxable
+    }
+
+    lu_training_type {
+        varchar training_type_code PK
+        varchar training_type_name
+        varchar category
+        int typical_duration_days
+        boolean is_mandatory
+    }

@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plantation Field Records — Database Design</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,500;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;600&family=Fraunces:opsz,wght@9..144,700;9..144,900&display=swap');
+
+  :root {
+    --bg: #0f1117;
+    --surface: #181b24;
+    --surface2: #1e2230;
+    --border: #2a2f3e;
+    --border-glow: #3d4663;
+    --text: #e1e4ed;
+    --text-dim: #8890a6;
+    --text-muted: #5c6380;
+    --accent-green: #4ade80;
+    --accent-green-dim: rgba(74,222,128,0.12);
+    --accent-blue: #60a5fa;
+    --accent-blue-dim: rgba(96,165,250,0.10);
+    --accent-amber: #fbbf24;
+    --accent-amber-dim: rgba(251,191,36,0.10);
+    --accent-rose: #fb7185;
+    --accent-rose-dim: rgba(251,113,133,0.10);
+    --accent-violet: #a78bfa;
+    --accent-violet-dim: rgba(167,139,250,0.10);
+    --accent-cyan: #22d3ee;
+    --accent-cyan-dim: rgba(34,211,238,0.10);
+    --line-primary: #4ade80;
+    --line-secondary: #60a5fa;
+    --line-tertiary: #fbbf24;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Header ── */
+  .header {
+    padding: 48px 48px 32px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(74,222,128,0.04) 0%, transparent 100%);
+  }
+  .header-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+    color: var(--accent-green);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .header-tag::before {
+    content: '';
+    display: inline-block;
+    width: 8px; height: 8px;
+    background: var(--accent-green);
+    border-radius: 50%;
+    box-shadow: 0 0 8px var(--accent-green);
+  }
+  .header h1 {
+    font-family: 'Fraunces', serif;
+    font-weight: 900;
+    font-size: 36px;
+    line-height: 1.15;
+    letter-spacing: -0.5px;
+    background: linear-gradient(135deg, #e1e4ed 30%, #4ade80 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .header p {
+    color: var(--text-dim);
+    font-size: 15px;
+    margin-top: 10px;
+    max-width: 620px;
+    line-height: 1.6;
+  }
+
+  /* ── Tab Navigation ── */
+  .tabs {
+    display: flex;
+    gap: 0;
+    padding: 0 48px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .tab {
+    padding: 16px 28px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+    user-select: none;
+    font-family: 'DM Sans', sans-serif;
+    letter-spacing: 0.2px;
+  }
+  .tab:hover { color: var(--text-dim); }
+  .tab.active {
+    color: var(--accent-green);
+    border-bottom-color: var(--accent-green);
+  }
+
+  /* ── Tab Content ── */
+  .tab-content { display: none; padding: 40px 48px 60px; }
+  .tab-content.active { display: block; }
+
+  /* ── Section Titles ── */
+  .section-title {
+    font-family: 'Fraunces', serif;
+    font-weight: 700;
+    font-size: 22px;
+    margin-bottom: 6px;
+  }
+  .section-subtitle {
+    color: var(--text-dim);
+    font-size: 13px;
+    margin-bottom: 32px;
+    line-height: 1.5;
+  }
+
+  /* ── ER Diagram (SVG Container) ── */
+  .er-container {
+    width: 100%;
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    position: relative;
+  }
+  .er-container svg {
+    display: block;
+    min-width: 1100px;
+  }
+
+  /* ── Schema Cards ── */
+  .schema-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+    gap: 20px;
+  }
+  .schema-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    transition: border-color 0.3s;
+  }
+  .schema-card:hover { border-color: var(--border-glow); }
+  .schema-card-header {
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+  }
+  .schema-card-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .schema-card-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-weight: 600;
+  }
+  .badge-core { background: var(--accent-green-dim); color: var(--accent-green); }
+  .badge-lookup { background: var(--accent-blue-dim); color: var(--accent-blue); }
+  .badge-audit { background: var(--accent-amber-dim); color: var(--accent-amber); }
+  .badge-view { background: var(--accent-violet-dim); color: var(--accent-violet); }
+
+  .schema-card-body { padding: 12px 0; }
+  .col-row {
+    display: grid;
+    grid-template-columns: 24px 1fr 120px;
+    align-items: center;
+    padding: 5px 20px;
+    font-size: 13px;
+    transition: background 0.15s;
+  }
+  .col-row:hover { background: rgba(255,255,255,0.02); }
+  .col-icon {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .col-icon.pk { color: var(--accent-amber); }
+  .col-icon.fk { color: var(--accent-rose); }
+  .col-icon.col { color: var(--text-muted); }
+  .col-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    color: var(--text);
+  }
+  .col-type {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: right;
+  }
+
+  /* ── Relationship Table ── */
+  .rel-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .rel-table thead th {
+    text-align: left;
+    padding: 12px 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .rel-table tbody td {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .rel-table tbody tr:hover { background: rgba(255,255,255,0.015); }
+  .mono {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+  }
+  .cardinality-badge {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 5px;
+  }
+  .card-1m { background: var(--accent-green-dim); color: var(--accent-green); }
+  .card-11 { background: var(--accent-cyan-dim); color: var(--accent-cyan); }
+  .card-self { background: var(--accent-amber-dim); color: var(--accent-amber); }
+
+  /* ── Data Flow Diagram ── */
+  .flow-container {
+    width: 100%;
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+  .flow-container svg { display: block; min-width: 900px; }
+
+  /* ── Legend ── */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    padding: 16px 24px;
+    background: var(--surface2);
+    border-radius: 10px;
+    margin-bottom: 24px;
+    border: 1px solid var(--border);
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  .legend-swatch {
+    width: 14px; height: 14px;
+    border-radius: 4px;
+    border: 2px solid;
+  }
+  .legend-line {
+    width: 28px; height: 3px;
+    border-radius: 2px;
+  }
+
+  /* ── Stats Bar ── */
+  .stats-bar {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 16px;
+    margin-bottom: 36px;
+  }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    text-align: center;
+  }
+  .stat-number {
+    font-family: 'Fraunces', serif;
+    font-size: 32px;
+    font-weight: 900;
+  }
+  .stat-number.green { color: var(--accent-green); }
+  .stat-number.blue { color: var(--accent-blue); }
+  .stat-number.amber { color: var(--accent-amber); }
+  .stat-number.violet { color: var(--accent-violet); }
+  .stat-number.rose { color: var(--accent-rose); }
+  .stat-label {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 0.5px;
+  }
+
+  @media (max-width: 768px) {
+    .header, .tabs, .tab-content { padding-left: 20px; padding-right: 20px; }
+    .header h1 { font-size: 26px; }
+    .schema-grid { grid-template-columns: 1fr; }
+    .tab { padding: 14px 16px; font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-tag">PostgreSQL + PostGIS</div>
+  <h1>Plantation Field Records<br>Database Design</h1>
+  <p>Complete entity-relationship model covering plantation master data, land classification, nurseries, field lifecycle, and clone distribution with spatial support.</p>
+</div>
+
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('er')">ER Diagram</div>
+  <div class="tab" onclick="switchTab('schema')">Table Schema</div>
+  <div class="tab" onclick="switchTab('relations')">Relationships</div>
+  <div class="tab" onclick="switchTab('flow')">Data Flow</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- TAB 1: ER DIAGRAM                                             -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="tab-content active" id="tab-er">
+
+  <div class="stats-bar">
+    <div class="stat-card"><div class="stat-number green">6</div><div class="stat-label">Core Tables</div></div>
+    <div class="stat-card"><div class="stat-number blue">5</div><div class="stat-label">Lookup Tables</div></div>
+    <div class="stat-card"><div class="stat-number amber">2</div><div class="stat-label">History / Audit</div></div>
+    <div class="stat-card"><div class="stat-number violet">4</div><div class="stat-label">Views</div></div>
+    <div class="stat-card"><div class="stat-number rose">4</div><div class="stat-label">Triggers</div></div>
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--accent-green-dim);border-color:var(--accent-green)"></div>Core Entity</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--accent-blue-dim);border-color:var(--accent-blue)"></div>Lookup Table</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--accent-amber-dim);border-color:var(--accent-amber)"></div>History / Snapshot</div>
+    <div class="legend-item"><div class="legend-line" style="background:var(--accent-green)"></div>1 : Many</div>
+    <div class="legend-item"><div class="legend-line" style="background:var(--accent-amber);background:repeating-linear-gradient(90deg,var(--accent-amber) 0 6px,transparent 6px 10px)"></div>Self-Ref / Optional</div>
+    <div class="legend-item">
+      <svg width="16" height="16"><circle cx="8" cy="8" r="4" fill="var(--accent-amber)"/></svg>PK
+    </div>
+    <div class="legend-item">
+      <svg width="16" height="16"><circle cx="8" cy="8" r="4" fill="var(--accent-rose)"/></svg>FK
+    </div>
+  </div>
+
+  <div class="er-container" id="erDiagram"></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- TAB 2: TABLE SCHEMA                                           -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="tab-content" id="tab-schema">
+  <div class="section-title">Table Definitions</div>
+  <div class="section-subtitle">All columns, types, and constraints for every table in the system.</div>
+  <div class="schema-grid" id="schemaGrid"></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- TAB 3: RELATIONSHIPS                                          -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="tab-content" id="tab-relations">
+  <div class="section-title">Relationships & Cardinality</div>
+  <div class="section-subtitle">All foreign key relationships with cardinality and business context.</div>
+  <div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;">
+    <table class="rel-table" id="relTable"></table>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- TAB 4: DATA FLOW                                              -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="tab-content" id="tab-flow">
+  <div class="section-title">Field Lifecycle & Data Flow</div>
+  <div class="section-subtitle">How a rubber field moves through lifecycle stages from nursery through mature tapping, and how data flows between entities.</div>
+  <div class="flow-container" id="flowDiagram"></div>
+</div>
+
+<script>
+// ── Tab Switching ──
+function switchTab(id) {
+  document.querySelectorAll('.tab').forEach((t,i) => {
+    t.classList.toggle('active', ['er','schema','relations','flow'][i] === id);
+  });
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  document.getElementById('tab-' + id).classList.add('active');
+}
+
+// ══════════════════════════════════════════════════════════════════
+// DATA: Schema definitions
+// ══════════════════════════════════════════════════════════════════
+const tables = [
+  {
+    name: 'plantation', badge: 'Core', badgeClass: 'badge-core',
+    columns: [
+      { icon: 'PK', cls: 'pk', name: 'plantation_id', type: 'SERIAL' },
+      { icon: '·', cls: 'col', name: 'plantation_code', type: 'VARCHAR(20) UQ' },
+      { icon: '·', cls: 'col', name: 'plantation_name', type: 'VARCHAR(200)' },
+      { icon: '·', cls: 'col', name: 'region / district / country', type: 'VARCHAR' },
+      { icon: '·', cls: 'col', name: 'total_surface_area', type: 'NUMERIC(12,4)' },
+      { icon: 'FK', cls: 'fk', name: 'measurement_unit', type: 'VARCHAR(10)' },
+      { icon: '·', cls: 'col', name: 'gps_point', type: 'GEOMETRY(Point)' },
+      { icon: '·', cls: 'col', name: 'boundary_polygon', type: 'GEOMETRY(Poly)' },
+      { icon: '·', cls: 'col', name: 'elevation / rainfall / soil', type: 'NUMERIC' },
+      { icon: '·', cls: 'col', name: 'ownership_type / status', type: 'VARCHAR' },
+      { icon: '·', cls: 'col', name: 'created_at / updated_at', type: 'TIMESTAMPTZ' },
+    ]
+  },
+  {
+    name: 'division', badge: 'Core', badgeClass: 'badge-core',
+    columns: [
+      { icon: 'PK', cls: 'pk', name: 'division_id', type: 'SERIAL' },
+      { icon: 'FK', cls: 'fk', name: 'plantation_id', type: 'INT' },
+      { icon: '·', cls: 'col', name: 'division_code', type: 'VARCHAR(20) UQ' },
+      { icon: '·', cls: 'col', name: 'division_name', type: 'VARCHAR(100)' },
+      { icon: '·', cls: 'col', name: 'area_ha', type: 'NUMERIC(12,4)' },
+    ]
+  },
+  {
+    name: 'field', badge: 'Core', badgeClass: 'badge-core',
+    columns: [
+      { icon: 'PK', cls: 'pk', name: 'field_id', type: 'SERIAL' },
+      { icon: 'FK', cls: 'fk', name: 'plantation_id', type: 'INT' },
+      { icon: 'FK', cls: 'fk', name: 'division_id', type: 'INT (nullable)' },
+      { icon: 'FK', cls: 'fk', name: 'clone_id', type: 'INT' },
+      { icon: 'FK', cls: 'fk', name: 'field_category', type: 'VARCHAR(20)' },
+      { icon: 'FK', cls: 'fk', name: 'tapping_system_code', type: 'VARCHAR(20)' },
+      { icon: '·', cls: 'col', name: 'field_code / field_name', type: 'VARCHAR' },
+      { icon: '·', cls: 'col', name: 'area_ha', type: 'NUMERIC(12,4)' },
+      { icon: '·', cls: 'col', name: 'number_of_plants', type: 'INT' },
+      { icon: '·', cls: 'col', name: 'planting_month / year', type: 'INT' },
+      { icon: '·', cls: 'col', name: 'tapping_start_month / year', type: 'INT' },
+      { icon: '·', cls: 'col', name: 'current_tapping_panel', type: 'VARCHAR(20)' },
+      { icon: '·', cls: 'col', name: 'field_boundary', type: 'GEOMETRY(Poly)' },
+    ]
+  },
+  {
+    name: 'nursery', badge: 'Core', badgeClass: 'badge-core',
+    columns: [
+      { icon: 'PK', cls: 'pk', name: 'nursery_id', type: 'SERIAL' },
+      { icon: 'FK', cls: 'fk', name: 'plantation_id', type: 'INT' },
+      { icon: 'FK', cls: 'fk', name: 'nursery_type_code', type: 'VARCHAR(20)' },
+      { icon: '·', cls: 'col', name: 'nursery_code / name', type: 'VARCHAR' },
+      { icon: '·', cls: 'col', name: 'area_ha', type: 'NUMERIC(12,4)' },
+      { icon: '·', cls: 'col', name: 'capacity_plants', type: 'INT' },
+      { icon: '·', cls: 'col', name: 'nursery_boundary', type: 'GEOMETRY(Poly)' },
+    ]
+  },
+  {
+    name: 'nursery_clone_distribution', badge: 'Core', badgeClass: 'badge-core',
+    columns: [
+      { icon: 'PK', cls: 'pk', name: 'distribution_id', type: 'SERIAL' },
+      { icon: 'FK', cls: 'fk', name: 'nursery_id', type: 'INT' },
+      { icon: 'FK', cls: 'fk', name: 'clone_id', type: 'INT' },
+      { icon: '·', cls: 'col', name: 'number_of_plants', type: 'INT' },
+      { icon: 'FK', cls: 'fk', name: 'rootstock_clone_id', type: 'INT (nullable)' },
+      { icon: '·', cls: 'col', name: 'survival_rate_pct', type: 'NUMERIC(5,2)' },
+      { icon: '·', cls: 'col', name: 'record_date', type: 'DATE' },
+    ]
+  },
+  {
+    name: 'plantation_land_use', badge: 'Core', badgeClass: 'badge-core',
+    columns: [
+      { icon: 'PK', cls: 'pk', name: 'land_use_id', type: 'SERIAL' },
+      { icon: 'FK', cls: 'fk', name: 'plantation_id', type: 'INT' },
+      { icon: 'FK', cls: 'fk', name: 'land_use_code', type: 'VARCHAR(20)' },
+      { icon: '·', cls: 'col', name: 'area_value', type: 'NUMERIC(12,4)' },
+      { icon: '·', cls: 'col', name: 'effective_date', type: 'DATE' },
+      { icon: '·', cls: 'col', name: 'zone_boundary', type: 'GEOMETRY(Multi)' },
+    ]
+  },
+  {
+    name: 'clone_master', badge: 'Lookup', badgeClass: 'badge-lookup',
+    columns: [
+      { icon: 'PK', cls: 'pk', name: 'clone_id', type: 'SERIAL' },
+      { icon: '·', cls: 'col', name: 'clone_code', type: 'VARCHAR(30) UQ' },
+      { icon: '·', cls: 'col', name: 'clone_name / class', type: 'VARCHAR' },
+      { icon: '·', cls: 'col', name: 'parentage', type: 'VARCHAR(200)' },
+      { icon: '·', cls: 'col', name: 'avg_yield_kg_per_ha', type: 'NUMERIC(10,2)' },
+      { icon: '·', cls: 'col', name: 'wind / disease resistance', type: 'VARCHAR' },
+    ]
+  },
+  {
+    name: 'lu_measurement_unit', badge: 'Lookup', badgeClass: 'badge-lookup',
+    columns: [
+      { icon: 'PK', cls: 'pk', name: 'unit_code', type: 'VARCHAR(10)' },
+      { icon: '·', cls: 'col', name: 'unit_name', type: 'VARCHAR(50)' },
+    ]
+  },
+  {
+    name: 'lu_land_use_type', badge: 'Lookup', badgeClass: 'badge-lookup',
+    columns: [
+      { icon: 'PK', cls: 'pk', name: 'land_use_code', type: 'VARCHAR(20)' },
+      { icon: '·', cls: 'col', name: 'land_use_name', type: 'VARCHAR(100)' },
+      { icon: 'FK', cls: 'fk', name: 'parent_code', type: 'VARCHAR(20) self' },
+    ]
+  },
+  {
+    name: 'lu_nursery_type', badge: 'Lookup', badgeClass: 'badge-lookup',
+    columns: [
+      { icon: 'PK', cls: 'pk', name: 'nursery_type_code', type: 'VARCHAR(20)' },
+      { icon: '·', cls: 'col', name: 'nursery_type_name', type: 'VARCHAR(100)' },
+      { icon: '·', cls: 'col', name: 'allows_multiple', type: 'BOOLEAN' },
+    ]
+  },
+  {
+    name: 'lu_field_category', badge: 'Lookup', badgeClass: 'badge-lookup',
+    columns: [
+      { icon: 'PK', cls: 'pk', name: 'category_code', type: 'VARCHAR(20)' },
+      { icon: '·', cls: 'col', name: 'category_name', type: 'VARCHAR(100)' },
+    ]
+  },
+  {
+    name: 'lu_tapping_system', badge: 'Lookup', badgeClass: 'badge-lookup',
+    columns: [
+      { icon: 'PK', cls: 'pk', name: 'tapping_system_code', type: 'VARCHAR(20)' },
+      { icon: '·', cls: 'col', name: 'tapping_system_name', type: 'VARCHAR(100)' },
+      { icon: '·', cls: 'col', name: 'frequency_notation', type: 'VARCHAR(50)' },
+    ]
+  },
+  {
+    name: 'field_lifecycle_history', badge: 'History', badgeClass: 'badge-audit',
+    columns: [
+      { icon: 'PK', cls: 'pk', name: 'history_id', type: 'SERIAL' },
+      { icon: 'FK', cls: 'fk', name: 'field_id', type: 'INT' },
+      { icon: '·', cls: 'col', name: 'event_type', type: 'VARCHAR(30)' },
+      { icon: '·', cls: 'col', name: 'event_date', type: 'DATE' },
+      { icon: 'FK', cls: 'fk', name: 'from/to_category', type: 'VARCHAR(20)' },
+      { icon: 'FK', cls: 'fk', name: 'old/new_tapping_system', type: 'VARCHAR(20)' },
+    ]
+  },
+  {
+    name: 'annual_area_snapshot', badge: 'History', badgeClass: 'badge-audit',
+    columns: [
+      { icon: 'PK', cls: 'pk', name: 'snapshot_id', type: 'SERIAL' },
+      { icon: 'FK', cls: 'fk', name: 'plantation_id', type: 'INT' },
+      { icon: '·', cls: 'col', name: 'snapshot_year', type: 'INT' },
+      { icon: '·', cls: 'col', name: 'all area breakdown cols', type: 'NUMERIC(12,4)' },
+    ]
+  },
+];
+
+// ══════════════════════════════════════════════════════════════════
+// RENDER: Schema Cards
+// ══════════════════════════════════════════════════════════════════
+const schemaGrid = document.getElementById('schemaGrid');
+tables.forEach(t => {
+  const cols = t.columns.map(c =>
+    `<div class="col-row">
+      <span class="col-icon ${c.cls}">${c.icon}</span>
+      <span class="col-name">${c.name}</span>
+      <span class="col-type">${c.type}</span>
+    </div>`
+  ).join('');
+  schemaGrid.innerHTML += `
+    <div class="schema-card">
+      <div class="schema-card-header">
+        <span class="schema-card-title">${t.name}</span>
+        <span class="schema-card-badge ${t.badgeClass}">${t.badge}</span>
+      </div>
+      <div class="schema-card-body">${cols}</div>
+    </div>`;
+});
+
+// ══════════════════════════════════════════════════════════════════
+// RENDER: Relationships Table
+// ══════════════════════════════════════════════════════════════════
+const relationships = [
+  { from: 'plantation', to: 'division', fk: 'plantation_id', card: '1:M', cls: 'card-1m', desc: 'A plantation has many divisions' },
+  { from: 'plantation', to: 'field', fk: 'plantation_id', card: '1:M', cls: 'card-1m', desc: 'A plantation has many fields/blocks' },
+  { from: 'plantation', to: 'nursery', fk: 'plantation_id', card: '1:M', cls: 'card-1m', desc: 'A plantation has many nurseries' },
+  { from: 'plantation', to: 'plantation_land_use', fk: 'plantation_id', card: '1:M', cls: 'card-1m', desc: 'A plantation has many land use records' },
+  { from: 'plantation', to: 'annual_area_snapshot', fk: 'plantation_id', card: '1:M', cls: 'card-1m', desc: 'Yearly area snapshots per plantation' },
+  { from: 'division', to: 'field', fk: 'division_id', card: '1:M', cls: 'card-1m', desc: 'A division contains many fields (optional)' },
+  { from: 'clone_master', to: 'field', fk: 'clone_id', card: '1:M', cls: 'card-1m', desc: 'A clone is planted in many fields' },
+  { from: 'clone_master', to: 'nursery_clone_distribution', fk: 'clone_id', card: '1:M', cls: 'card-1m', desc: 'Clone distribution records per nursery' },
+  { from: 'nursery', to: 'nursery_clone_distribution', fk: 'nursery_id', card: '1:M', cls: 'card-1m', desc: 'Each nursery has many clone distributions' },
+  { from: 'field', to: 'field_lifecycle_history', fk: 'field_id', card: '1:M', cls: 'card-1m', desc: 'Each field has lifecycle event records' },
+  { from: 'lu_field_category', to: 'field', fk: 'field_category', card: '1:M', cls: 'card-1m', desc: 'Category classifies fields' },
+  { from: 'lu_tapping_system', to: 'field', fk: 'tapping_system_code', card: '1:M', cls: 'card-1m', desc: 'Tapping system assigned to mature fields' },
+  { from: 'lu_nursery_type', to: 'nursery', fk: 'nursery_type_code', card: '1:M', cls: 'card-1m', desc: 'Nursery type classification' },
+  { from: 'lu_land_use_type', to: 'plantation_land_use', fk: 'land_use_code', card: '1:M', cls: 'card-1m', desc: 'Land use type classification' },
+  { from: 'lu_land_use_type', to: 'lu_land_use_type', fk: 'parent_code', card: 'Self', cls: 'card-self', desc: 'Hierarchical land use types' },
+  { from: 'lu_measurement_unit', to: 'plantation', fk: 'measurement_unit', card: '1:M', cls: 'card-1m', desc: 'Unit of measurement reference' },
+];
+
+const relTable = document.getElementById('relTable');
+relTable.innerHTML = `
+  <thead><tr>
+    <th>From Table</th><th>To Table</th><th>FK Column</th><th>Cardinality</th><th>Description</th>
+  </tr></thead>
+  <tbody>${relationships.map(r => `
+    <tr>
+      <td class="mono">${r.from}</td>
+      <td class="mono">${r.to}</td>
+      <td class="mono">${r.fk}</td>
+      <td><span class="cardinality-badge ${r.cls}">${r.card}</span></td>
+      <td style="color:var(--text-dim)">${r.desc}</td>
+    </tr>`).join('')}
+  </tbody>`;
+
+// ══════════════════════════════════════════════════════════════════
+// RENDER: ER Diagram (SVG)
+// ══════════════════════════════════════════════════════════════════
+function renderER() {
+  const W = 1200, H = 920;
+  // Entity positions (x, y, w, h)
+  const entities = {
+    plantation:        { x: 420, y: 30,  w: 200, h: 72, color: '#4ade80', bg: 'rgba(74,222,128,0.08)', label: 'plantation', sub: 'Master Record' },
+    division:          { x: 130, y: 190, w: 170, h: 56, color: '#4ade80', bg: 'rgba(74,222,128,0.08)', label: 'division', sub: 'Org Unit' },
+    field:             { x: 420, y: 220, w: 200, h: 72, color: '#4ade80', bg: 'rgba(74,222,128,0.06)', label: 'field', sub: 'Core Operational Unit' },
+    nursery:           { x: 770, y: 190, w: 180, h: 56, color: '#4ade80', bg: 'rgba(74,222,128,0.08)', label: 'nursery', sub: 'Plant Nursery' },
+    ncd:               { x: 780, y: 380, w: 220, h: 56, color: '#4ade80', bg: 'rgba(74,222,128,0.08)', label: 'nursery_clone_distribution', sub: 'Clone × Nursery' },
+    land_use:          { x: 770, y: 50,  w: 210, h: 56, color: '#4ade80', bg: 'rgba(74,222,128,0.08)', label: 'plantation_land_use', sub: 'Area Breakdown' },
+    lifecycle:         { x: 370, y: 410, w: 220, h: 56, color: '#fbbf24', bg: 'rgba(251,191,36,0.08)', label: 'field_lifecycle_history', sub: 'Audit Trail' },
+    snapshot:          { x: 100, y: 50,  w: 210, h: 56, color: '#fbbf24', bg: 'rgba(251,191,36,0.08)', label: 'annual_area_snapshot', sub: 'Yearly Snapshot' },
+    clone:             { x: 460, y: 560, w: 180, h: 56, color: '#60a5fa', bg: 'rgba(96,165,250,0.08)', label: 'clone_master', sub: 'Clone Registry' },
+    lu_unit:           { x: 110, y: 720, w: 190, h: 48, color: '#60a5fa', bg: 'rgba(96,165,250,0.06)', label: 'lu_measurement_unit', sub: 'Lookup' },
+    lu_lut:            { x: 790, y: 560, w: 190, h: 48, color: '#60a5fa', bg: 'rgba(96,165,250,0.06)', label: 'lu_land_use_type', sub: 'Lookup (self-ref)' },
+    lu_nt:             { x: 790, y: 700, w: 190, h: 48, color: '#60a5fa', bg: 'rgba(96,165,250,0.06)', label: 'lu_nursery_type', sub: 'Lookup' },
+    lu_fc:             { x: 110, y: 400, w: 190, h: 48, color: '#60a5fa', bg: 'rgba(96,165,250,0.06)', label: 'lu_field_category', sub: 'Lookup' },
+    lu_ts:             { x: 110, y: 560, w: 190, h: 48, color: '#60a5fa', bg: 'rgba(96,165,250,0.06)', label: 'lu_tapping_system', sub: 'Lookup' },
+  };
+
+  // Connections: [from, fromSide, to, toSide, color, dashed]
+  const conns = [
+    ['plantation','bottom','division','top','#4ade80', false],
+    ['plantation','bottom','field','top','#4ade80', false],
+    ['plantation','right','nursery','top','#4ade80', false],
+    ['plantation','right','land_use','left','#4ade80', false],
+    ['plantation','left','snapshot','right','#fbbf24', true],
+    ['division','right','field','left','#4ade80', false],
+    ['field','bottom','lifecycle','top','#fbbf24', true],
+    ['nursery','bottom','ncd','top','#4ade80', false],
+    ['clone','top','field','bottom','#60a5fa', false],
+    ['clone','right','ncd','bottom','#60a5fa', false],
+    ['lu_fc','right','field','left','#60a5fa', true],
+    ['lu_ts','right','field','bottom','#60a5fa', true],
+    ['lu_lut','left','land_use','bottom','#60a5fa', true],
+    ['lu_nt','left','nursery','bottom','#60a5fa', true],
+    ['lu_unit','top','plantation','left','#60a5fa', true],
+  ];
+
+  function getAnchor(e, side) {
+    const ex = e.x, ey = e.y, ew = e.w, eh = e.h;
+    switch(side) {
+      case 'top':    return { x: ex + ew/2, y: ey };
+      case 'bottom': return { x: ex + ew/2, y: ey + eh };
+      case 'left':   return { x: ex, y: ey + eh/2 };
+      case 'right':  return { x: ex + ew, y: ey + eh/2 };
+    }
+  }
+
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">
+    <defs>
+      <marker id="arrow-green" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#4ade80" opacity="0.7"/></marker>
+      <marker id="arrow-blue" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#60a5fa" opacity="0.7"/></marker>
+      <marker id="arrow-amber" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#fbbf24" opacity="0.7"/></marker>
+    </defs>`;
+
+  // Draw connections
+  conns.forEach(([fromKey, fromSide, toKey, toSide, color, dashed]) => {
+    const a = getAnchor(entities[fromKey], fromSide);
+    const b = getAnchor(entities[toKey], toSide);
+    const mx = (a.x + b.x)/2, my = (a.y + b.y)/2;
+    let path;
+    if (fromSide === 'bottom' && toSide === 'top') {
+      path = `M${a.x},${a.y} C${a.x},${my} ${b.x},${my} ${b.x},${b.y}`;
+    } else if (fromSide === 'right' && toSide === 'left') {
+      path = `M${a.x},${a.y} C${mx},${a.y} ${mx},${b.y} ${b.x},${b.y}`;
+    } else if (fromSide === 'left' && toSide === 'right') {
+      path = `M${a.x},${a.y} C${mx},${a.y} ${mx},${b.y} ${b.x},${b.y}`;
+    } else if (fromSide === 'right' && toSide === 'top') {
+      path = `M${a.x},${a.y} C${a.x+40},${a.y} ${b.x},${a.y} ${b.x},${b.y}`;
+    } else if (fromSide === 'right' && toSide === 'bottom') {
+      path = `M${a.x},${a.y} C${a.x+50},${a.y} ${b.x},${b.y+50} ${b.x},${b.y}`;
+    } else if (fromSide === 'left' && toSide === 'top') {
+      path = `M${a.x},${a.y} C${a.x-40},${a.y} ${b.x},${a.y} ${b.x},${b.y}`;
+    } else if (fromSide === 'top' && toSide === 'left') {
+      path = `M${a.x},${a.y} C${a.x},${b.y} ${b.x+20},${b.y} ${b.x},${b.y}`;
+    } else {
+      path = `M${a.x},${a.y} L${b.x},${b.y}`;
+    }
+    const markerColor = color === '#4ade80' ? 'green' : color === '#60a5fa' ? 'blue' : 'amber';
+    svg += `<path d="${path}" fill="none" stroke="${color}" stroke-width="1.5" opacity="0.5" 
+      ${dashed ? 'stroke-dasharray="6,4"' : ''} marker-end="url(#arrow-${markerColor})"/>`;
+  });
+
+  // Draw entities
+  Object.values(entities).forEach(e => {
+    svg += `<rect x="${e.x}" y="${e.y}" width="${e.w}" height="${e.h}" rx="10" 
+      fill="${e.bg}" stroke="${e.color}" stroke-width="1.5" opacity="0.9"/>`;
+    svg += `<text x="${e.x + e.w/2}" y="${e.y + (e.h > 56 ? 30 : 24)}" text-anchor="middle" 
+      fill="${e.color}" font-family="JetBrains Mono, monospace" font-size="12" font-weight="600">${e.label}</text>`;
+    svg += `<text x="${e.x + e.w/2}" y="${e.y + (e.h > 56 ? 48 : 42)}" text-anchor="middle" 
+      fill="#8890a6" font-family="DM Sans, sans-serif" font-size="10">${e.sub}</text>`;
+  });
+
+  svg += `</svg>`;
+  document.getElementById('erDiagram').innerHTML = svg;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// RENDER: Data Flow / Lifecycle Diagram (SVG)
+// ══════════════════════════════════════════════════════════════════
+function renderFlow() {
+  const W = 1100, H = 620;
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">
+    <defs>
+      <marker id="fa-green" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#4ade80" opacity="0.8"/></marker>
+      <marker id="fa-amber" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#fbbf24" opacity="0.8"/></marker>
+      <marker id="fa-rose" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#fb7185" opacity="0.8"/></marker>
+    </defs>`;
+
+  // Background lanes
+  const lanes = [
+    { x: 30, w: 240, label: 'NURSERY PHASE', color: '#22d3ee' },
+    { x: 290, w: 260, label: 'IMMATURE PHASE', color: '#fbbf24' },
+    { x: 570, w: 260, label: 'MATURE PHASE', color: '#4ade80' },
+    { x: 850, w: 220, label: 'REPORTING', color: '#a78bfa' },
+  ];
+  lanes.forEach(l => {
+    svg += `<rect x="${l.x}" y="60" width="${l.w}" height="500" rx="12" fill="${l.color}" opacity="0.04" stroke="${l.color}" stroke-width="1" opacity="0.15"/>`;
+    svg += `<text x="${l.x + l.w/2}" y="40" text-anchor="middle" fill="${l.color}" font-family="JetBrains Mono, monospace" font-size="11" font-weight="600" letter-spacing="1.5" opacity="0.7">${l.label}</text>`;
+  });
+
+  // Boxes
+  const boxes = [
+    // Nursery
+    { x: 60, y: 100, w: 180, h: 54, label: 'Motherbud Garden', sub: '1 per plantation', color: '#22d3ee' },
+    { x: 60, y: 190, w: 180, h: 54, label: 'Polybag Nursery', sub: 'Clone distribution', color: '#22d3ee' },
+    { x: 60, y: 280, w: 180, h: 54, label: 'Ground Nursery', sub: 'Clone distribution', color: '#22d3ee' },
+    { x: 65, y: 400, w: 170, h: 44, label: 'clone_master', sub: '', color: '#60a5fa' },
+    // Immature
+    { x: 320, y: 130, w: 200, h: 60, label: 'New Clearing', sub: 'Clone + Area + Date', color: '#fbbf24' },
+    { x: 320, y: 250, w: 200, h: 60, label: 'Replanting', sub: 'Clone + Area + Date', color: '#fbbf24' },
+    { x: 340, y: 400, w: 170, h: 44, label: 'field table', sub: 'category: IMMATURE', color: '#fbbf24' },
+    // Mature
+    { x: 600, y: 180, w: 200, h: 70, label: 'Under Tapping', sub: 'Clone + Area + Dates\nPanel + System', color: '#4ade80' },
+    { x: 620, y: 320, w: 170, h: 44, label: 'field table', sub: 'category: MATURE', color: '#4ade80' },
+    { x: 600, y: 420, w: 200, h: 50, label: 'Lifecycle History', sub: 'All transitions logged', color: '#fbbf24' },
+    // Reporting
+    { x: 870, y: 120, w: 180, h: 50, label: 'Area Summary View', sub: 'vw_plantation_area_summary', color: '#a78bfa' },
+    { x: 870, y: 210, w: 180, h: 50, label: 'Clone Distribution', sub: 'vw_clone_distribution_summary', color: '#a78bfa' },
+    { x: 870, y: 300, w: 180, h: 50, label: 'Annual Snapshot', sub: 'annual_area_snapshot', color: '#a78bfa' },
+    { x: 870, y: 390, w: 180, h: 50, label: 'Immature Fields', sub: 'vw_immature_fields', color: '#a78bfa' },
+    { x: 870, y: 470, w: 180, h: 50, label: 'Mature Fields', sub: 'vw_mature_fields', color: '#a78bfa' },
+  ];
+
+  boxes.forEach(b => {
+    svg += `<rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="8" fill="${b.color}" fill-opacity="0.08" stroke="${b.color}" stroke-width="1.2"/>`;
+    svg += `<text x="${b.x + b.w/2}" y="${b.y + 22}" text-anchor="middle" fill="${b.color}" font-family="JetBrains Mono, monospace" font-size="11.5" font-weight="600">${b.label}</text>`;
+    if (b.sub) {
+      const lines = b.sub.split('\n');
+      lines.forEach((line, i) => {
+        svg += `<text x="${b.x + b.w/2}" y="${b.y + 38 + i*14}" text-anchor="middle" fill="#8890a6" font-family="DM Sans, sans-serif" font-size="10">${line}</text>`;
+      });
+    }
+  });
+
+  // Arrows
+  const arrows = [
+    // Nursery → Immature
+    { x1: 240, y1: 127, x2: 320, y2: 152, color: '#4ade80', marker: 'fa-green' },
+    { x1: 240, y1: 217, x2: 320, y2: 170, color: '#4ade80', marker: 'fa-green' },
+    { x1: 240, y1: 290, x2: 320, y2: 270, color: '#4ade80', marker: 'fa-green' },
+    // Immature → Mature
+    { x1: 520, y1: 160, x2: 600, y2: 205, color: '#fbbf24', marker: 'fa-amber' },
+    { x1: 520, y1: 280, x2: 600, y2: 225, color: '#fbbf24', marker: 'fa-amber' },
+    // Mature → Lifecycle
+    { x1: 700, y1: 250, x2: 700, y2: 420, color: '#fb7185', marker: 'fa-rose' },
+    // To reporting
+    { x1: 800, y1: 215, x2: 870, y2: 145, color: '#a78bfa', marker: 'fa-green' },
+    { x1: 800, y1: 215, x2: 870, y2: 235, color: '#a78bfa', marker: 'fa-green' },
+    { x1: 800, y1: 340, x2: 870, y2: 325, color: '#a78bfa', marker: 'fa-green' },
+  ];
+
+  arrows.forEach(a => {
+    svg += `<line x1="${a.x1}" y1="${a.y1}" x2="${a.x2}" y2="${a.y2}" stroke="${a.color}" stroke-width="1.5" opacity="0.5" marker-end="url(#${a.marker})"/>`;
+  });
+
+  // Phase transition labels
+  svg += `<text x="280" y="90" text-anchor="middle" fill="#4ade80" font-family="DM Sans" font-size="10" opacity="0.6">Plants transferred</text>`;
+  svg += `<text x="560" y="150" text-anchor="middle" fill="#fbbf24" font-family="DM Sans" font-size="10" opacity="0.6">Opens for tapping</text>`;
+  svg += `<text x="730" y="390" text-anchor="start" fill="#fb7185" font-family="DM Sans" font-size="10" opacity="0.6">Events logged</text>`;
+
+  // Clone master connections
+  svg += `<line x1="150" y1="400" x2="150" y2="310" stroke="#60a5fa" stroke-width="1" opacity="0.3" stroke-dasharray="4,3"/>`;
+  svg += `<line x1="150" y1="400" x2="150" y2="220" stroke="#60a5fa" stroke-width="1" opacity="0.3" stroke-dasharray="4,3"/>`;
+  svg += `<line x1="235" y1="420" x2="340" y2="420" stroke="#60a5fa" stroke-width="1" opacity="0.3" stroke-dasharray="4,3"/>`;
+  svg += `<line x1="510" y1="420" x2="620" y2="340" stroke="#60a5fa" stroke-width="1" opacity="0.3" stroke-dasharray="4,3"/>`;
+
+  svg += `</svg>`;
+  document.getElementById('flowDiagram').innerHTML = svg;
+}
+
+// Initial render
+renderER();
+renderFlow();
+</script>
+
+</body>
+</html>

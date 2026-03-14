@@ -1,0 +1,269 @@
+---
+title: Module 5 — Daily Activity Monitoring — Entity Relationship Diagram
+---
+erDiagram
+    %% ═══════════════════════════════════════════
+    %% CROSS-MODULE REFERENCES
+    %% ═══════════════════════════════════════════
+    plantation ||--o{ daily_work_plan : "plans per plantation"
+    plantation ||--o{ daily_activity : "activities per plantation"
+    plantation ||--o{ supervisor_inspection : "inspections"
+    plantation ||--o{ daily_activity_summary : "daily summaries"
+    division ||--o{ daily_work_plan : "plan per division"
+    division ||--o{ daily_activity : "activities per division"
+    field ||--o{ daily_activity : "activities per field"
+    nursery ||--o{ daily_activity : "nursery activities"
+    field ||--o{ supervisor_inspection : "inspections per field"
+    worker ||--o{ daily_work_plan : "planned_by"
+    worker ||--o{ daily_activity : "assigned_worker"
+    worker ||--o{ daily_activity : "supervisor"
+    worker ||--o{ daily_activity : "assigned_by"
+    worker ||--o{ activity_worker_assignment : "worker tracked"
+    worker ||--o{ activity_photo_evidence : "captured_by"
+    worker ||--o{ supervisor_inspection : "inspector"
+    gang ||--o{ daily_activity : "gang assigned"
+    tapping_task ||--o| daily_activity : "cross-ref tapping"
+
+    %% ═══════════════════════════════════════════
+    %% CORE RELATIONSHIPS
+    %% ═══════════════════════════════════════════
+    daily_work_plan ||--o{ daily_activity : "contains activities"
+    daily_activity ||--o{ activity_worker_assignment : "multi-worker tracking"
+    daily_activity ||--o{ activity_material_usage : "materials consumed"
+    daily_activity ||--o{ activity_photo_evidence : "photo evidence"
+    daily_activity ||--o{ supervisor_inspection : "linked inspections"
+    supervisor_inspection ||--o{ inspection_checklist_response : "checklist items"
+
+    %% ═══════════════════════════════════════════
+    %% LOOKUP RELATIONSHIPS
+    %% ═══════════════════════════════════════════
+    lu_activity_category ||--o{ lu_activity_type : "types within"
+    lu_activity_category ||--o{ daily_activity : "activity category"
+    lu_activity_category ||--o{ lu_inspection_checklist_item : "checklist per category"
+    lu_activity_type ||--o{ daily_activity : "activity type"
+    lu_activity_status ||--o{ daily_activity : "activity status"
+    lu_activity_priority ||--o{ daily_activity : "priority level"
+    lu_inspection_checklist_item ||--o{ inspection_checklist_response : "checklist items"
+    material_master ||--o{ activity_material_usage : "material catalog"
+
+    %% ═══════════════════════════════════════════
+    %% TABLE DEFINITIONS
+    %% ═══════════════════════════════════════════
+
+    daily_work_plan {
+        serial plan_id PK
+        int plantation_id FK
+        int division_id FK
+        date plan_date
+        varchar plan_name
+        int planned_by FK "worker_id"
+        varchar status
+        varchar weather_forecast
+        boolean suitable_for_field_work
+        int total_activities_planned
+        int total_activities_completed
+        int total_workers_deployed
+        numeric completion_rate_pct
+        text ai_suggested_priorities
+    }
+
+    daily_activity {
+        bigserial activity_id PK
+        int plan_id FK
+        int plantation_id FK
+        int division_id FK
+        int field_id FK
+        int nursery_id FK
+        varchar activity_type_code FK
+        varchar category_code FK
+        text activity_description
+        date activity_date
+        int assigned_worker_id FK "worker"
+        int assigned_gang_id FK "gang"
+        int assigned_by FK "worker"
+        varchar priority_code FK
+        time planned_start_time
+        time planned_end_time
+        numeric planned_duration_hours
+        varchar status FK
+        timestamptz actual_start_time
+        timestamptz actual_end_time
+        numeric actual_duration_hours "auto-calc"
+        int workers_deployed
+        numeric man_days "auto-calc"
+        numeric target_quantity
+        numeric actual_quantity
+        varchar quantity_unit
+        numeric completion_pct "auto-calc"
+        bigint tapping_task_id FK "M3 cross-ref"
+        geometry start_gps_point
+        geometry gps_route "LineString"
+        varchar weather_condition
+        numeric rainfall_mm
+        text cancel_reason
+        date postponed_to_date
+        int supervisor_id FK "worker"
+        boolean supervisor_verified
+        boolean ai_anomaly_flag
+        text ai_anomaly_reason
+        numeric ai_efficiency_score
+        text[] photo_urls
+    }
+
+    activity_worker_assignment {
+        bigserial assignment_id PK
+        bigint activity_id FK
+        int worker_id FK
+        varchar role_in_activity
+        timestamptz check_in_time
+        timestamptz check_out_time
+        numeric hours_worked
+        numeric individual_quantity
+        varchar quantity_unit
+    }
+
+    activity_material_usage {
+        bigserial usage_id PK
+        bigint activity_id FK
+        int material_id FK
+        numeric planned_quantity
+        numeric actual_quantity
+        varchar quantity_unit
+        numeric unit_cost
+        numeric total_cost "auto-calc"
+        varchar currency_code
+        varchar batch_number
+        varchar store_issue_ref
+        numeric concentration_pct
+        varchar application_rate
+        numeric variance_pct "auto-calc"
+        text variance_reason
+    }
+
+    activity_photo_evidence {
+        bigserial photo_id PK
+        bigint activity_id FK
+        varchar photo_url
+        varchar thumbnail_url
+        varchar photo_type
+        timestamptz captured_at
+        int captured_by FK "worker"
+        geometry gps_point
+        boolean ai_analyzed
+        jsonb ai_analysis_result
+        numeric ai_confidence_score
+        text[] ai_flagged_issues
+        text caption
+    }
+
+    supervisor_inspection {
+        serial inspection_id PK
+        int plantation_id FK
+        int division_id FK
+        int field_id FK
+        bigint activity_id FK
+        int inspector_id FK "worker"
+        date inspection_date
+        timestamptz inspection_time
+        varchar inspection_type
+        int overall_rating "1-5"
+        geometry gps_point
+        boolean ar_assisted
+        varchar ar_device_id
+        text ai_summary
+        text findings
+        text corrective_actions
+        date follow_up_date
+        boolean follow_up_completed
+    }
+
+    inspection_checklist_response {
+        serial response_id PK
+        int inspection_id FK
+        varchar item_code FK
+        boolean yes_no_value
+        int rating_value "1-5"
+        numeric numeric_value
+        text text_value
+        text remarks
+        varchar photo_url
+    }
+
+    daily_activity_summary {
+        serial summary_id PK
+        int plantation_id FK
+        int division_id FK
+        date summary_date
+        int total_planned
+        int total_completed
+        int total_partial
+        int total_cancelled
+        int total_postponed
+        int total_workers_deployed
+        numeric total_man_days
+        numeric tapping_area_ha
+        numeric maintenance_area_ha
+        numeric manuring_area_ha
+        numeric spraying_area_ha
+        int nursery_plants
+        int replanting_trees
+        numeric total_material_cost
+        numeric avg_inspection_rating
+        int activities_with_anomalies
+        varchar weather_condition
+        numeric rainfall_mm
+        numeric overall_completion_pct
+        text ai_daily_summary
+        text ai_recommendations
+    }
+
+    material_master {
+        serial material_id PK
+        varchar material_code UK
+        varchar material_name
+        varchar material_category
+        varchar default_unit
+        numeric unit_cost
+        varchar currency_code
+        boolean is_hazardous
+        varchar safety_data_url
+        numeric min_stock_level
+    }
+
+    lu_activity_category {
+        varchar category_code PK
+        varchar category_name
+        int display_order
+    }
+
+    lu_activity_type {
+        varchar activity_type_code PK
+        varchar activity_type_name
+        varchar category_code FK
+        boolean requires_field
+        boolean requires_materials
+        boolean requires_photo
+        boolean requires_gps
+        numeric standard_duration_hours
+        varchar unit_of_measure
+    }
+
+    lu_activity_status {
+        varchar status_code PK
+        varchar status_name
+        boolean is_terminal
+    }
+
+    lu_activity_priority {
+        varchar priority_code PK
+        varchar priority_name
+        int priority_level "1-5"
+        varchar color_hex
+    }
+
+    lu_inspection_checklist_item {
+        varchar item_code PK
+        varchar item_name
+        varchar category_code FK
+        varchar check_type
+    }

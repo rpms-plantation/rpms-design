@@ -1,0 +1,307 @@
+---
+title: Module 3 — Tapping Task Monitoring — Entity Relationship Diagram
+---
+erDiagram
+    %% ═══════════════════════════════════════════
+    %% CROSS-MODULE REFERENCES (M1 & M2)
+    %% ═══════════════════════════════════════════
+    plantation ||--o{ tapping_schedule : "schedules per plantation"
+    plantation ||--o{ tapping_task : "tasks per plantation"
+    plantation ||--o{ collection_point : "collection stations"
+    plantation ||--o{ weather_observation : "weather records"
+    plantation ||--o{ iot_device : "IoT devices"
+    plantation ||--o{ tapper_performance_daily : "tapper analytics"
+    plantation ||--o{ field_yield_daily : "yield analytics"
+
+    field ||--o{ tapping_schedule : "schedule per field"
+    field ||--o{ tapping_task : "daily tasks per field"
+    field ||--o{ latex_collection_record : "collections from field"
+    field ||--o{ weather_observation : "weather per field"
+    field ||--o{ iot_device : "devices in field"
+    field ||--o{ field_yield_daily : "daily yield"
+
+    division ||--o{ tapping_task : "division context"
+    lu_tapping_system ||--o{ tapping_schedule : "system used"
+    lu_tapping_system ||--o{ tapping_task : "system on task"
+    tree ||--o{ tapping_task_tree_detail : "tree-level tapping"
+
+    %% ═══════════════════════════════════════════
+    %% CORE OPERATIONAL CHAIN
+    %% ═══════════════════════════════════════════
+    tapping_schedule ||--o{ tapping_task : "generates daily tasks"
+    tapping_task ||--o{ tapping_task_tree_detail : "per-tree NFC records"
+    tapping_task ||--o{ latex_collection_record : "latex collected"
+    collection_point ||--o{ latex_collection_record : "received at"
+    latex_collection_record ||--o{ latex_quality_test : "quality tested"
+
+    %% ═══════════════════════════════════════════
+    %% IoT CHAIN
+    %% ═══════════════════════════════════════════
+    iot_device ||--o{ iot_sensor_reading : "telemetry data"
+    iot_device ||--o{ weather_observation : "weather source"
+
+    %% ═══════════════════════════════════════════
+    %% LOOKUP REFERENCES
+    %% ═══════════════════════════════════════════
+    lu_tapping_task_status ||--o{ tapping_task : "task status"
+    lu_latex_grade ||--o{ latex_collection_record : "latex grade"
+    lu_tapping_skip_reason ||--o{ tapping_task : "task skip reason"
+    lu_tapping_skip_reason ||--o{ tapping_task_tree_detail : "tree skip reason"
+    lu_collection_point_type ||--o{ collection_point : "point type"
+    lu_quality_parameter ||--o{ latex_quality_test : "test parameter"
+    lu_iot_device_type ||--o{ iot_device : "device type"
+
+    %% ═══════════════════════════════════════════
+    %% TABLE DEFINITIONS
+    %% ═══════════════════════════════════════════
+
+    tapping_schedule {
+        serial schedule_id PK
+        int plantation_id FK
+        int field_id FK
+        varchar schedule_name
+        varchar tapping_system_code FK
+        int frequency_days
+        varchar tapping_days
+        time expected_start_time
+        time expected_end_time
+        date effective_from
+        date effective_to
+        int target_trees_per_day
+        numeric target_yield_kg_per_day
+        numeric rain_cutoff_mm
+        numeric min_dry_hours
+        varchar status
+    }
+
+    tapping_task {
+        bigserial task_id PK
+        int plantation_id FK
+        int field_id FK
+        int division_id FK
+        int schedule_id FK
+        date task_date
+        int tapper_id
+        varchar tapper_name
+        varchar tapping_system_code FK
+        varchar panel_code
+        varchar status FK
+        timestamptz actual_start_time
+        timestamptz actual_end_time
+        geometry start_gps_point
+        int total_trees_assigned
+        int trees_tapped
+        int trees_skipped
+        int trees_with_tpd
+        numeric total_latex_kg
+        numeric total_cup_lump_kg
+        numeric total_tree_lace_kg
+        numeric total_yield_kg
+        numeric yield_per_tree_g
+        numeric avg_drc_pct
+        varchar skip_reason_code FK
+        numeric weather_temp_c
+        numeric weather_rainfall_mm
+        varchar weather_condition
+        varchar smart_knife_device_id
+        boolean geofence_verified
+        numeric tapping_quality_score
+        boolean supervisor_verified
+        numeric ai_yield_prediction_kg
+        varchar blockchain_tx_hash
+    }
+
+    tapping_task_tree_detail {
+        bigserial detail_id PK
+        bigint task_id FK
+        bigint tree_id FK
+        varchar tag_uid
+        timestamptz scanned_at
+        boolean was_tapped
+        varchar skip_reason_code FK
+        numeric latex_volume_ml
+        numeric cup_lump_g
+        varchar panel_code
+        numeric cut_length_cm
+        numeric cut_depth_mm
+        numeric cut_angle_deg
+        numeric bark_shaving_mm
+        varchar photo_url
+        numeric ai_cut_quality_score
+    }
+
+    latex_collection_record {
+        bigserial collection_id PK
+        bigint task_id FK
+        int plantation_id FK
+        int field_id FK
+        varchar latex_grade_code FK
+        date collection_date
+        timestamptz collection_time
+        numeric gross_weight_kg
+        numeric container_weight_kg
+        numeric net_weight_kg
+        numeric drc_pct
+        numeric dry_rubber_kg
+        int collection_point_id FK
+        varchar digital_scale_id
+        boolean auto_weighed
+        varchar transport_batch_id
+        varchar blockchain_tx_hash
+    }
+
+    collection_point {
+        serial collection_point_id PK
+        int plantation_id FK
+        varchar point_code UK
+        varchar point_name
+        varchar point_type_code FK
+        int division_id FK
+        geometry gps_point
+        numeric storage_capacity_kg
+        boolean has_weighbridge
+        boolean has_drc_testing
+        varchar status
+    }
+
+    latex_quality_test {
+        bigserial test_id PK
+        bigint collection_id FK
+        varchar parameter_code FK
+        numeric tested_value
+        varchar unit_of_measure
+        boolean is_within_spec
+        numeric deviation_pct
+        date test_date
+        varchar tested_by
+        varchar test_method
+        varchar test_location
+    }
+
+    weather_observation {
+        serial observation_id PK
+        int plantation_id FK
+        int field_id FK
+        date observation_date
+        numeric temperature_min_c
+        numeric temperature_max_c
+        numeric humidity_min_pct
+        numeric humidity_max_pct
+        numeric rainfall_mm
+        numeric wind_speed_max_kmh
+        varchar weather_condition
+        varchar data_source
+        int iot_device_id FK
+        boolean suitable_for_tapping
+    }
+
+    iot_device {
+        serial device_id PK
+        varchar device_uid UK
+        varchar device_name
+        varchar device_type_code FK
+        int plantation_id FK
+        int field_id FK
+        int assigned_tapper_id
+        varchar manufacturer
+        varchar model_number
+        varchar firmware_version
+        geometry gps_point
+        varchar status
+        numeric battery_level_pct
+        timestamptz last_heartbeat_at
+    }
+
+    iot_sensor_reading {
+        bigserial reading_id PK
+        int device_id FK
+        timestamptz reading_timestamp "PARTITION KEY"
+        numeric temperature_c
+        numeric humidity_pct
+        numeric rainfall_mm
+        numeric wind_speed_kmh
+        int cut_count
+        numeric avg_cut_angle_deg
+        numeric avg_cut_depth_mm
+        numeric weight_kg
+        numeric flow_rate_ml_min
+        numeric gps_latitude
+        numeric gps_longitude
+        int step_count
+        int heart_rate_bpm
+    }
+
+    tapper_performance_daily {
+        bigserial performance_id PK
+        int tapper_id
+        varchar tapper_name
+        int plantation_id FK
+        date performance_date
+        int tasks_assigned
+        int tasks_completed
+        int total_trees_tapped
+        numeric total_yield_kg
+        numeric avg_yield_per_tree_g
+        numeric avg_tapping_quality_score
+        numeric avg_trees_per_hour
+        boolean reported_on_time
+    }
+
+    field_yield_daily {
+        bigserial yield_id PK
+        int plantation_id FK
+        int field_id FK
+        date yield_date
+        int total_tappers
+        int total_trees_tapped
+        numeric field_latex_kg
+        numeric cup_lump_kg
+        numeric total_wet_yield_kg
+        numeric avg_drc_pct
+        numeric total_dry_rubber_kg
+        numeric yield_per_tree_g
+        numeric yield_per_ha_kg
+        numeric rainfall_mm
+        varchar clone_code
+        int tree_age_years
+    }
+
+    lu_tapping_task_status {
+        varchar status_code PK
+        varchar status_name
+        boolean is_terminal
+        int display_order
+    }
+
+    lu_latex_grade {
+        varchar grade_code PK
+        varchar grade_name
+        numeric drc_range_min
+        numeric drc_range_max
+        numeric price_premium_pct
+    }
+
+    lu_tapping_skip_reason {
+        varchar reason_code PK
+        varchar reason_name
+        varchar reason_category
+    }
+
+    lu_collection_point_type {
+        varchar point_type_code PK
+        varchar point_type_name
+    }
+
+    lu_quality_parameter {
+        varchar parameter_code PK
+        varchar parameter_name
+        varchar unit_of_measure
+        numeric min_acceptable
+        numeric max_acceptable
+    }
+
+    lu_iot_device_type {
+        varchar device_type_code PK
+        varchar device_type_name
+        varchar category
+    }

@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RPMS — Artifact Storage Strategy</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,500;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;600&family=Fraunces:opsz,wght@9..144,700;9..144,900&display=swap');
+:root{--bg:#0f1117;--surface:#181b24;--surface2:#1e2230;--border:#2a2f3e;--border-glow:#3d4663;--text:#e1e4ed;--text-dim:#8890a6;--text-muted:#5c6380;--green:#4ade80;--green-dim:rgba(74,222,128,.1);--blue:#60a5fa;--blue-dim:rgba(96,165,250,.08);--amber:#fbbf24;--amber-dim:rgba(251,191,36,.08);--rose:#fb7185;--rose-dim:rgba(251,113,133,.08);--violet:#a78bfa;--violet-dim:rgba(167,139,250,.08);--cyan:#22d3ee;--cyan-dim:rgba(34,211,238,.08);--teal:#2dd4bf;--teal-dim:rgba(45,212,191,.08);--orange:#fb923c;--orange-dim:rgba(251,146,60,.08)}
+*{margin:0;padding:0;box-sizing:border-box}body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min-height:100vh;padding:48px;max-width:1100px;margin:0 auto;line-height:1.7}
+h1{font-family:'Fraunces',serif;font-weight:900;font-size:34px;background:linear-gradient(135deg,#e1e4ed 30%,#4ade80 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:8px}
+h2{font-family:'Fraunces',serif;font-weight:700;font-size:22px;color:var(--green);margin-top:40px;margin-bottom:12px;padding-top:24px;border-top:1px solid var(--border)}
+h3{font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:600;color:var(--blue);margin-top:24px;margin-bottom:8px}
+p{color:var(--text-dim);font-size:14px;margin-bottom:12px}
+.tag{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--green);margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.tag::before{content:'';display:inline-block;width:8px;height:8px;background:var(--green);border-radius:50%;box-shadow:0 0 8px var(--green)}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px 24px;margin:16px 0;transition:border-color .3s}
+.card:hover{border-color:var(--border-glow)}
+.card-title{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;margin-bottom:8px}
+.card-cost{font-family:'JetBrains Mono',monospace;font-size:11px;padding:3px 10px;border-radius:5px;display:inline-block;margin-bottom:8px}
+.free{background:var(--green-dim);color:var(--green)}
+.tree{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px 24px;margin:16px 0;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.8;color:var(--text-dim);white-space:pre;overflow-x:auto}
+.tree .dir{color:var(--amber)}
+.tree .file{color:var(--text-dim)}
+.tree .comment{color:var(--text-muted);font-style:italic}
+table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13px}
+th{text-align:left;padding:12px 16px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid var(--border);background:var(--surface)}
+td{padding:10px 16px;border-bottom:1px solid var(--border)}
+tr:hover{background:rgba(255,255,255,.015)}
+.mono{font-family:'JetBrains Mono',monospace;font-size:12px}
+.highlight{color:var(--green)}
+ul{color:var(--text-dim);font-size:14px;padding-left:20px;margin:8px 0}
+li{margin:4px 0}
+.summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin:20px 0}
+.summary-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;text-align:center}
+.summary-number{font-family:'Fraunces',serif;font-size:28px;font-weight:900}
+.summary-label{font-size:11px;color:var(--text-muted);margin-top:4px;font-family:'JetBrains Mono',monospace}
+@media(max-width:768px){body{padding:20px}h1{font-size:26px}.tree{font-size:11px}}
+</style>
+</head>
+<body>
+
+<div class="tag">Artifact Storage Strategy</div>
+<h1>Where to Store Everything — $0 Budget</h1>
+<p>A practical, free-tier strategy using GitHub as the backbone, with Notion for living documentation and draw.io for diagrams — all version-controlled and accessible.</p>
+
+<div class="summary-grid">
+  <div class="summary-card"><div class="summary-number" style="color:var(--green)">$0</div><div class="summary-label">Total Monthly Cost</div></div>
+  <div class="summary-card"><div class="summary-number" style="color:var(--blue)">3</div><div class="summary-label">GitHub Repos</div></div>
+  <div class="summary-card"><div class="summary-number" style="color:var(--amber)">1</div><div class="summary-label">Notion Workspace</div></div>
+  <div class="summary-card"><div class="summary-number" style="color:var(--violet)">∞</div><div class="summary-label">Scalable to Team</div></div>
+</div>
+
+<h2>1. The Three-Repository Strategy on GitHub</h2>
+<p>GitHub Free gives you <strong>unlimited private repositories</strong> with unlimited collaborators. Repos should stay under 1 GB each (5 GB hard limit). Separate concerns into three repos to keep things organized and maintainable as the team grows.</p>
+
+<div class="card">
+  <div class="card-title" style="color:var(--green)">Repo 1: rpms-design — Design & Architecture Artifacts</div>
+  <span class="card-cost free">FREE — GitHub Private Repo</span>
+  <p>All the artifacts we've created so far go here. DDL scripts, diagrams, architecture documents, ER models, wireframes, API contracts, and technical specifications.</p>
+</div>
+
+<div class="tree"><span class="dir">rpms-design/</span>
+├── <span class="dir">README.md</span>                          <span class="comment"># Project overview, module index, quick links</span>
+├── <span class="dir">architecture/</span>
+│   ├── high-level-architecture.html       <span class="comment"># The interactive arch diagram</span>
+│   ├── architecture-decisions/
+│   │   ├── ADR-001-database-choice.md     <span class="comment"># Architecture Decision Records</span>
+│   │   ├── ADR-002-spring-vs-quarkus.md
+│   │   ├── ADR-003-event-backbone.md
+│   │   └── ADR-004-mobile-framework.md
+│   ├── c4-context-diagram.mermaid
+│   ├── c4-container-diagram.mermaid
+│   └── deployment-topology.mermaid
+│
+├── <span class="dir">database/</span>
+│   ├── <span class="dir">module-1-field-records/</span>
+│   │   ├── plantation_field_records_ddl.sql
+│   │   ├── plantation_db_design_diagrams.html
+│   │   ├── plantation_er_diagram.mermaid
+│   │   └── README.md                      <span class="comment"># Module overview, table summary</span>
+│   ├── <span class="dir">module-2-tree-records/</span>
+│   │   ├── tree_records_tracking_ddl.sql
+│   │   ├── tree_records_tracking_diagrams.html
+│   │   ├── tree_records_tracking_er.mermaid
+│   │   └── README.md
+│   ├── <span class="dir">module-3-tapping-task/</span>
+│   │   ├── tapping_task_monitoring_ddl.sql
+│   │   ├── tapping_task_monitoring_diagrams.html
+│   │   ├── tapping_task_monitoring_er.mermaid
+│   │   └── README.md
+│   ├── <span class="dir">module-4-workforce/</span>
+│   │   ├── workforce_management_ddl.sql
+│   │   ├── workforce_management_diagrams.html
+│   │   ├── workforce_management_er.mermaid
+│   │   └── README.md
+│   ├── <span class="dir">module-5-daily-activity/</span>
+│   │   ├── daily_activity_monitoring_ddl.sql
+│   │   ├── daily_activity_monitoring_diagrams.html
+│   │   ├── daily_activity_monitoring_er.mermaid
+│   │   └── README.md
+│   ├── <span class="dir">module-6-attendance/</span>
+│   │   ├── attendance_management_ddl.sql
+│   │   ├── attendance_management_diagrams.html
+│   │   ├── attendance_management_er.mermaid
+│   │   └── README.md
+│   ├── <span class="dir">migrations/</span>                     <span class="comment"># Flyway/Liquibase migration scripts (when dev starts)</span>
+│   │   ├── V1.0__module1_field_records.sql
+│   │   ├── V2.0__module2_tree_records.sql
+│   │   └── ...
+│   └── <span class="dir">seed-data/</span>                      <span class="comment"># Lookup table INSERT scripts (already in DDLs)</span>
+│
+├── <span class="dir">api-contracts/</span>
+│   ├── plantation-service-openapi.yaml
+│   ├── tree-service-openapi.yaml
+│   ├── tapping-service-openapi.yaml
+│   └── ...                                <span class="comment"># OpenAPI 3.0 specs per service</span>
+│
+├── <span class="dir">wireframes/</span>
+│   ├── mobile-tapper-app/
+│   ├── supervisor-tablet/
+│   └── management-dashboard/
+│
+├── <span class="dir">domain-model/</span>
+│   ├── bounded-contexts.mermaid
+│   ├── event-storming-results.md
+│   └── domain-glossary.md
+│
+└── <span class="dir">docs/</span>
+    ├── technology-radar.md                <span class="comment"># Tech choices with adopt/trial/assess/hold</span>
+    ├── non-functional-requirements.md
+    ├── security-architecture.md
+    └── data-flow-diagrams.md</div>
+
+<div class="card">
+  <div class="card-title" style="color:var(--blue)">Repo 2: rpms-backend — Application Source Code (when development begins)</div>
+  <span class="card-cost free">FREE — GitHub Private Repo</span>
+  <p>Monorepo for all backend microservices, shared libraries, and infrastructure code. This keeps CI/CD simple in the early stage — you can split into per-service repos later if needed.</p>
+</div>
+
+<div class="tree"><span class="dir">rpms-backend/</span>
+├── <span class="dir">services/</span>
+│   ├── <span class="dir">plantation-service/</span>          <span class="comment"># Spring Boot — Module 1</span>
+│   ├── <span class="dir">tree-service/</span>                <span class="comment"># Spring Boot — Module 2</span>
+│   ├── <span class="dir">tapping-service/</span>             <span class="comment"># Quarkus — Module 3</span>
+│   ├── <span class="dir">workforce-service/</span>           <span class="comment"># Spring Boot — Module 4</span>
+│   ├── <span class="dir">activity-service/</span>            <span class="comment"># Quarkus — Module 5</span>
+│   ├── <span class="dir">attendance-service/</span>          <span class="comment"># Quarkus — Module 6</span>
+│   ├── <span class="dir">notification-service/</span>        <span class="comment"># Spring Boot — Cross-cutting</span>
+│   ├── <span class="dir">reporting-service/</span>           <span class="comment"># Spring Boot — Cross-cutting</span>
+│   └── <span class="dir">api-gateway/</span>                 <span class="comment"># Spring Cloud Gateway</span>
+├── <span class="dir">shared-libs/</span>
+│   ├── <span class="dir">rpms-common/</span>                 <span class="comment"># Shared DTOs, events, utilities</span>
+│   ├── <span class="dir">rpms-security/</span>               <span class="comment"># Keycloak integration lib</span>
+│   └── <span class="dir">rpms-kafka-events/</span>           <span class="comment"># Avro schemas, event definitions</span>
+├── <span class="dir">ai-services/</span>
+│   ├── <span class="dir">vision-service/</span>              <span class="comment"># Python/FastAPI — Photo analysis</span>
+│   ├── <span class="dir">yield-predictor/</span>             <span class="comment"># Python — Forecasting</span>
+│   └── <span class="dir">ai-copilot/</span>                  <span class="comment"># Python/LangChain — Gen AI</span>
+├── <span class="dir">infra/</span>
+│   ├── <span class="dir">terraform/</span>                   <span class="comment"># Infrastructure as Code</span>
+│   ├── <span class="dir">k8s-manifests/</span>               <span class="comment"># Kubernetes YAML / Helm charts</span>
+│   ├── <span class="dir">docker/</span>                      <span class="comment"># Dockerfiles per service</span>
+│   └── <span class="dir">edge-gateway/</span>                <span class="comment"># K3s + Mosquitto + Camel config</span>
+├── <span class="dir">.github/</span>
+│   └── <span class="dir">workflows/</span>                   <span class="comment"># GitHub Actions CI/CD pipelines</span>
+└── README.md</div>
+
+<div class="card">
+  <div class="card-title" style="color:var(--orange)">Repo 3: rpms-mobile — Mobile & Web Application Source Code</div>
+  <span class="card-cost free">FREE — GitHub Private Repo</span>
+  <p>Separate repo for Kotlin Multiplatform mobile apps and Angular web dashboard. Different build toolchain (Kotlin/Gradle + Node/Angular vs Java/Maven backend), different release cycles, and potentially different team members.</p>
+</div>
+
+<div class="tree"><span class="dir">rpms-mobile/</span>
+├── <span class="dir">shared/</span>                            <span class="comment"># KMP shared module — compiles to Android + (future) iOS</span>
+│   ├── <span class="dir">src/commonMain/</span>
+│   │   ├── <span class="dir">domain/</span>                   <span class="comment"># Domain models matching 60+ DB entities</span>
+│   │   ├── <span class="dir">network/</span>                  <span class="comment"># Ktor API client, DTOs, serialization</span>
+│   │   ├── <span class="dir">database/</span>                 <span class="comment"># SQLDelight schemas, offline sync engine</span>
+│   │   └── <span class="dir">validation/</span>               <span class="comment"># Business rules shared across platforms</span>
+│   ├── <span class="dir">src/androidMain/</span>               <span class="comment"># Android-specific implementations</span>
+│   └── <span class="dir">src/iosMain/</span>                   <span class="comment"># iOS-specific implementations (future)</span>
+├── <span class="dir">android-app/</span>
+│   ├── <span class="dir">app/src/main/</span>
+│   │   ├── <span class="dir">ui/</span>                       <span class="comment"># Jetpack Compose screens</span>
+│   │   │   ├── <span class="dir">tapping/</span>
+│   │   │   ├── <span class="dir">attendance/</span>
+│   │   │   ├── <span class="dir">activity/</span>
+│   │   │   └── <span class="dir">inspection/</span>
+│   │   ├── <span class="dir">hardware/</span>                 <span class="comment"># BLE, NFC, CameraX, GPS, Biometric</span>
+│   │   ├── <span class="dir">service/</span>                  <span class="comment"># ForegroundService, WorkManager</span>
+│   │   └── <span class="dir">di/</span>                       <span class="comment"># Koin / Hilt dependency injection</span>
+│   └── build.gradle.kts
+├── <span class="dir">web-dashboard/</span>
+│   ├── <span class="dir">src/</span>
+│   │   ├── <span class="dir">app/</span>
+│   │   │   ├── <span class="dir">modules/</span>              <span class="comment"># Lazy-loaded feature modules per RPMS module</span>
+│   │   │   ├── <span class="dir">core/</span>                 <span class="comment"># Guards, interceptors, services</span>
+│   │   │   └── <span class="dir">shared/</span>               <span class="comment"># Shared components, pipes, directives</span>
+│   │   ├── <span class="dir">assets/</span>
+│   │   └── <span class="dir">environments/</span>
+│   ├── angular.json
+│   └── package.json
+└── README.md</div>
+
+<h2>2. Living Documentation — Notion (Free Tier)</h2>
+<p>Notion's free plan gives you <strong>unlimited pages and blocks</strong> for personal use, or up to 10 guest collaborators on a free team plan. Use it for living documents that change frequently and aren't suited to Git version control.</p>
+
+<div class="card">
+  <div class="card-title" style="color:var(--violet)">What goes in Notion (NOT in GitHub)</div>
+  <span class="card-cost free">FREE — Notion Free Plan</span>
+  <ul>
+    <li><strong>Project roadmap & sprint planning</strong> — Kanban boards, timelines, task tracking</li>
+    <li><strong>Meeting notes & decisions log</strong> — daily/weekly standup notes, stakeholder meeting records</li>
+    <li><strong>Requirements & user stories</strong> — living documents that evolve through discussions</li>
+    <li><strong>Team onboarding guide</strong> — how to set up dev environment, coding standards</li>
+    <li><strong>Vendor evaluations</strong> — IoT device comparisons, cloud provider evaluation notes</li>
+    <li><strong>Research notes</strong> — rubber plantation domain knowledge, industry standards</li>
+    <li><strong>Links to GitHub artifacts</strong> — each Notion page links directly to the relevant repo files</li>
+  </ul>
+  <p style="margin-top:12px;color:var(--amber)">Rule of thumb: If it's a versioned deliverable (DDL, code, diagram file) → GitHub. If it's a living discussion document → Notion.</p>
+</div>
+
+<h2>3. Diagrams — draw.io (Free) + Mermaid (in GitHub)</h2>
+
+<div class="card">
+  <div class="card-title" style="color:var(--cyan)">Diagram Strategy</div>
+  <span class="card-cost free">FREE — draw.io + Mermaid</span>
+
+  <table>
+    <thead><tr><th>Diagram Type</th><th>Tool</th><th>Stored Where</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">ER Diagrams</td><td class="mono" style="color:var(--green)">Mermaid (.mermaid)</td><td>GitHub</td><td>Renders natively in GitHub README, version-controlled as text</td></tr>
+      <tr><td class="mono">Architecture Diagrams</td><td class="mono" style="color:var(--cyan)">draw.io (.drawio)</td><td>GitHub</td><td>Complex multi-layer diagrams need visual editor; .drawio is XML — diffable in Git</td></tr>
+      <tr><td class="mono">Sequence Diagrams</td><td class="mono" style="color:var(--green)">Mermaid</td><td>GitHub</td><td>API call flows, event sequences — text-based, easy to update</td></tr>
+      <tr><td class="mono">Interactive HTML</td><td class="mono" style="color:var(--orange)">Custom HTML/SVG</td><td>GitHub</td><td>The diagrams I've created — open locally in browser, no server needed</td></tr>
+      <tr><td class="mono">Wireframes</td><td class="mono" style="color:var(--cyan)">draw.io or Figma Free</td><td>GitHub / Figma</td><td>Figma free tier: 3 files, unlimited editors. draw.io for simpler wireframes</td></tr>
+      <tr><td class="mono">Whiteboard / Brainstorm</td><td class="mono" style="color:var(--violet)">Excalidraw</td><td>GitHub</td><td>Free, open-source, exports to .excalidraw (JSON) — version-controllable</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>4. CI/CD — GitHub Actions (Free Tier)</h2>
+<p>GitHub Free includes <strong>2,000 CI/CD minutes/month</strong> for private repos. For a small team starting out, this is more than enough for running builds, tests, and deployments.</p>
+
+<div class="card">
+  <div class="card-title" style="color:var(--amber)">What to automate early</div>
+  <span class="card-cost free">FREE — 2,000 min/month</span>
+  <ul>
+    <li><strong>DDL validation</strong> — Run SQL syntax checks on every PR to the design repo</li>
+    <li><strong>Mermaid rendering</strong> — Auto-generate PNG from .mermaid files on commit</li>
+    <li><strong>Build & test</strong> — Maven/Gradle builds for Spring Boot, Quarkus native builds</li>
+    <li><strong>Docker image builds</strong> — Build container images, push to GitHub Container Registry (free for public, included storage for private)</li>
+    <li><strong>OpenAPI validation</strong> — Lint API specs on every change</li>
+  </ul>
+</div>
+
+<h2>5. Issue Tracking — GitHub Issues + Projects (Free)</h2>
+<p>GitHub Issues with Projects (board/table views) is a capable free alternative to Jira for early-stage projects. Use labels for modules, milestones for phases.</p>
+
+<div class="card">
+  <div class="card-title" style="color:var(--teal)">Label structure</div>
+  <span class="card-cost free">FREE — GitHub Issues</span>
+  <table>
+    <thead><tr><th>Label Category</th><th>Examples</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">Module</td><td><code>module:field-records</code> <code>module:tree-tracking</code> <code>module:tapping</code> <code>module:workforce</code> <code>module:activity</code> <code>module:attendance</code></td></tr>
+      <tr><td class="mono">Type</td><td><code>type:feature</code> <code>type:bug</code> <code>type:design</code> <code>type:infra</code> <code>type:research</code></td></tr>
+      <tr><td class="mono">Priority</td><td><code>priority:critical</code> <code>priority:high</code> <code>priority:medium</code> <code>priority:low</code></td></tr>
+      <tr><td class="mono">Component</td><td><code>comp:database</code> <code>comp:api</code> <code>comp:mobile</code> <code>comp:iot</code> <code>comp:ai</code> <code>comp:blockchain</code></td></tr>
+      <tr><td class="mono">Phase</td><td><code>phase:1</code> <code>phase:2</code> <code>phase:future</code></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>6. Complete Free Toolchain Summary</h2>
+
+<table>
+  <thead><tr><th>Need</th><th>Tool</th><th>Cost</th><th>Limits on Free Tier</th></tr></thead>
+  <tbody>
+    <tr><td>Source & Design Versioning</td><td class="mono" style="color:var(--green)">GitHub (Private Repos)</td><td class="mono highlight">$0</td><td>Unlimited repos, unlimited collaborators, &lt;1 GB/repo recommended</td></tr>
+    <tr><td>CI/CD</td><td class="mono" style="color:var(--green)">GitHub Actions</td><td class="mono highlight">$0</td><td>2,000 min/month for private repos</td></tr>
+    <tr><td>Issue Tracking</td><td class="mono" style="color:var(--green)">GitHub Issues + Projects</td><td class="mono highlight">$0</td><td>Unlimited issues, board/table views</td></tr>
+    <tr><td>Container Registry</td><td class="mono" style="color:var(--green)">GitHub Packages (GHCR)</td><td class="mono highlight">$0</td><td>500 MB storage included, free for public images</td></tr>
+    <tr><td>Living Docs & Wiki</td><td class="mono" style="color:var(--violet)">Notion</td><td class="mono highlight">$0</td><td>Unlimited pages/blocks, 10 guests on free team</td></tr>
+    <tr><td>Complex Diagrams</td><td class="mono" style="color:var(--cyan)">draw.io (diagrams.net)</td><td class="mono highlight">$0</td><td>No limits — desktop app or VS Code extension</td></tr>
+    <tr><td>Text Diagrams (ER, Sequence)</td><td class="mono" style="color:var(--green)">Mermaid</td><td class="mono highlight">$0</td><td>Renders natively in GitHub, Notion, VS Code</td></tr>
+    <tr><td>Wireframes (basic)</td><td class="mono" style="color:var(--cyan)">draw.io or Excalidraw</td><td class="mono highlight">$0</td><td>No limits</td></tr>
+    <tr><td>Wireframes (advanced)</td><td class="mono" style="color:var(--rose)">Figma</td><td class="mono highlight">$0</td><td>3 Figma files, unlimited editors on free tier</td></tr>
+    <tr><td>Communication</td><td class="mono" style="color:var(--orange)">Discord or Slack (Free)</td><td class="mono highlight">$0</td><td>Discord: unlimited history. Slack free: 90 days history</td></tr>
+    <tr><td>Database (local dev)</td><td class="mono" style="color:var(--teal)">Docker + PostgreSQL</td><td class="mono highlight">$0</td><td>Docker Desktop free for personal/small business</td></tr>
+  </tbody>
+</table>
+
+<h2>7. Immediate Next Steps</h2>
+
+<div class="card">
+  <div class="card-title" style="color:var(--green)">Action Items — Do These Today</div>
+  <p><strong>Step 1:</strong> Create a GitHub organization (e.g., <code>rpms-plantation</code>) — this keeps repos under a shared org rather than a personal account. Free for unlimited collaborators.</p>
+  <p><strong>Step 2:</strong> Create the <code>rpms-design</code> private repo and push all 18 artifacts we've created (6 DDLs + 6 HTML diagrams + 6 Mermaid files) following the folder structure above.</p>
+  <p><strong>Step 3:</strong> Write a root <code>README.md</code> with a module index table linking to each module's folder, the architecture HTML, and key stats (60 tables, 25 views, 30 triggers).</p>
+  <p><strong>Step 4:</strong> Create a Notion workspace with pages mirroring the module structure — link each page to the corresponding GitHub folder. Add a "Decisions Log" database.</p>
+  <p><strong>Step 5:</strong> Set up GitHub Issues with the label structure above. Create milestone <code>Phase 1</code>. Log the first issues for API contract design per module.</p>
+</div>
+
+<h2>8. When to Upgrade (Future Growth)</h2>
+<p>This free setup works well for 1-5 people. Here's when you'd consider paid tools:</p>
+<table>
+  <thead><tr><th>Trigger</th><th>Upgrade To</th><th>Approx Cost</th></tr></thead>
+  <tbody>
+    <tr><td>Team grows to 5+ developers needing branch protection</td><td class="mono">GitHub Team</td><td>$4/user/month</td></tr>
+    <tr><td>Need hosted PostgreSQL for staging/prod</td><td class="mono">Neon.tech or Supabase free → paid</td><td>$0 → $25/month</td></tr>
+    <tr><td>Need Kubernetes cluster for deployment</td><td class="mono">DigitalOcean or Hetzner K8s</td><td>~$30-60/month</td></tr>
+    <tr><td>Need shared Notion workspace for 10+ people</td><td class="mono">Notion Plus</td><td>$10/user/month</td></tr>
+    <tr><td>Need CI/CD beyond 2,000 min/month</td><td class="mono">GitHub Team (3,000 min) or self-hosted runner</td><td>$4/user or $0 (self-hosted)</td></tr>
+  </tbody>
+</table>
+
+</body>
+</html>

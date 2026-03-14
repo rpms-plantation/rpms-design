@@ -1,0 +1,182 @@
+---
+title: Plantation Field Records — Entity Relationship Diagram
+---
+erDiagram
+    plantation ||--o{ division : "has"
+    plantation ||--o{ field : "contains"
+    plantation ||--o{ nursery : "operates"
+    plantation ||--o{ plantation_land_use : "classified into"
+    plantation ||--o{ annual_area_snapshot : "yearly snapshot"
+    plantation }o--|| lu_measurement_unit : "uses"
+
+    division ||--o{ field : "groups"
+
+    field }o--|| clone_master : "planted with"
+    field }o--|| lu_field_category : "categorized as"
+    field }o--o| lu_tapping_system : "tapped using"
+    field ||--o{ field_lifecycle_history : "tracks events"
+
+    nursery }o--|| lu_nursery_type : "classified as"
+    nursery ||--o{ nursery_clone_distribution : "contains"
+
+    nursery_clone_distribution }o--|| clone_master : "clone"
+    nursery_clone_distribution }o--o| clone_master : "rootstock clone"
+
+    plantation_land_use }o--|| lu_land_use_type : "typed as"
+    lu_land_use_type }o--o| lu_land_use_type : "parent hierarchy"
+
+    field_lifecycle_history }o--o| lu_field_category : "from category"
+    field_lifecycle_history }o--o| lu_field_category : "to category"
+    field_lifecycle_history }o--o| lu_tapping_system : "old system"
+    field_lifecycle_history }o--o| lu_tapping_system : "new system"
+
+    plantation {
+        serial plantation_id PK
+        varchar plantation_code UK
+        varchar plantation_name
+        varchar region
+        varchar district
+        varchar country
+        numeric total_surface_area
+        varchar measurement_unit FK
+        geometry gps_point
+        geometry boundary_polygon
+        numeric elevation_m
+        numeric avg_annual_rainfall_mm
+        varchar soil_type
+        varchar ownership_type
+        varchar status
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    division {
+        serial division_id PK
+        int plantation_id FK
+        varchar division_code UK
+        varchar division_name
+        numeric area_ha
+        boolean is_active
+    }
+
+    field {
+        serial field_id PK
+        int plantation_id FK
+        int division_id FK
+        int clone_id FK
+        varchar field_category FK
+        varchar tapping_system_code FK
+        varchar field_code UK
+        varchar field_name
+        numeric area_ha
+        varchar measurement_unit FK
+        int number_of_plants
+        int original_stand_per_ha
+        int current_stand_per_ha
+        int planting_month
+        int planting_year
+        int tapping_start_month
+        int tapping_start_year
+        varchar current_tapping_panel
+        geometry field_boundary
+        varchar status
+    }
+
+    nursery {
+        serial nursery_id PK
+        int plantation_id FK
+        varchar nursery_type_code FK
+        varchar nursery_code UK
+        varchar nursery_name
+        numeric area_ha
+        int capacity_plants
+        date establishment_date
+        varchar status
+        geometry nursery_boundary
+    }
+
+    nursery_clone_distribution {
+        serial distribution_id PK
+        int nursery_id FK
+        int clone_id FK
+        int rootstock_clone_id FK
+        int number_of_plants
+        numeric survival_rate_pct
+        date record_date
+    }
+
+    plantation_land_use {
+        serial land_use_id PK
+        int plantation_id FK
+        varchar land_use_code FK
+        numeric area_value
+        varchar measurement_unit FK
+        date effective_date
+        geometry zone_boundary
+    }
+
+    clone_master {
+        serial clone_id PK
+        varchar clone_code UK
+        varchar clone_name
+        varchar clone_class
+        varchar parentage
+        numeric avg_yield_kg_per_ha
+        varchar wind_resistance
+        boolean is_active
+    }
+
+    field_lifecycle_history {
+        serial history_id PK
+        int field_id FK
+        varchar event_type
+        date event_date
+        varchar from_category FK
+        varchar to_category FK
+        varchar old_tapping_system FK
+        varchar new_tapping_system FK
+        varchar old_panel
+        varchar new_panel
+    }
+
+    annual_area_snapshot {
+        serial snapshot_id PK
+        int plantation_id FK
+        int snapshot_year
+        date snapshot_date
+        numeric total_surface_area
+        numeric total_planted_area
+        numeric total_immature_area
+        numeric total_mature_area
+        numeric total_nursery_area
+        varchar measurement_unit FK
+    }
+
+    lu_measurement_unit {
+        varchar unit_code PK
+        varchar unit_name
+    }
+
+    lu_land_use_type {
+        varchar land_use_code PK
+        varchar land_use_name
+        varchar parent_code FK
+        int display_order
+    }
+
+    lu_nursery_type {
+        varchar nursery_type_code PK
+        varchar nursery_type_name
+        boolean allows_multiple
+    }
+
+    lu_field_category {
+        varchar category_code PK
+        varchar category_name
+    }
+
+    lu_tapping_system {
+        varchar tapping_system_code PK
+        varchar tapping_system_name
+        varchar frequency_notation
+    }

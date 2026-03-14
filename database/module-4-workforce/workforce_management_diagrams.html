@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Workforce Management — Database Design</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,500;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;600&family=Fraunces:opsz,wght@9..144,700;9..144,900&display=swap');
+  :root{--bg:#0f1117;--surface:#181b24;--surface2:#1e2230;--border:#2a2f3e;--border-glow:#3d4663;--text:#e1e4ed;--text-dim:#8890a6;--text-muted:#5c6380;--accent-green:#4ade80;--accent-green-dim:rgba(74,222,128,.12);--accent-blue:#60a5fa;--accent-blue-dim:rgba(96,165,250,.10);--accent-amber:#fbbf24;--accent-amber-dim:rgba(251,191,36,.10);--accent-rose:#fb7185;--accent-rose-dim:rgba(251,113,133,.10);--accent-violet:#a78bfa;--accent-violet-dim:rgba(167,139,250,.10);--accent-cyan:#22d3ee;--accent-cyan-dim:rgba(34,211,238,.10);--accent-teal:#2dd4bf;--accent-teal-dim:rgba(45,212,191,.10);--accent-orange:#fb923c;--accent-orange-dim:rgba(251,146,60,.10);--accent-lime:#a3e635;--accent-lime-dim:rgba(163,230,53,.10)}
+  *{margin:0;padding:0;box-sizing:border-box}body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min-height:100vh;overflow-x:hidden}
+  .header{padding:48px 48px 32px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,rgba(251,146,60,.05) 0%,transparent 100%)}
+  .header-tag{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:2.5px;text-transform:uppercase;color:var(--accent-orange);margin-bottom:12px;display:flex;align-items:center;gap:8px}
+  .header-tag::before{content:'';display:inline-block;width:8px;height:8px;background:var(--accent-orange);border-radius:50%;box-shadow:0 0 8px var(--accent-orange)}
+  .header h1{font-family:'Fraunces',serif;font-weight:900;font-size:36px;line-height:1.15;letter-spacing:-.5px;background:linear-gradient(135deg,#e1e4ed 30%,#fb923c 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+  .header p{color:var(--text-dim);font-size:15px;margin-top:10px;max-width:720px;line-height:1.6}
+  .header .dep{display:inline-block;margin-top:12px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--accent-amber);background:var(--accent-amber-dim);padding:5px 12px;border-radius:6px;margin-right:8px}
+  .tabs{display:flex;gap:0;padding:0 48px;border-bottom:1px solid var(--border);background:var(--surface);position:sticky;top:0;z-index:100}
+  .tab{padding:16px 24px;font-size:13px;font-weight:500;color:var(--text-muted);cursor:pointer;border-bottom:2px solid transparent;transition:all .2s;user-select:none;font-family:'DM Sans',sans-serif}
+  .tab:hover{color:var(--text-dim)}.tab.active{color:var(--accent-orange);border-bottom-color:var(--accent-orange)}
+  .tab-content{display:none;padding:40px 48px 60px}.tab-content.active{display:block}
+  .section-title{font-family:'Fraunces',serif;font-weight:700;font-size:22px;margin-bottom:6px}
+  .section-subtitle{color:var(--text-dim);font-size:13px;margin-bottom:32px;line-height:1.5}
+  .er-container,.flow-container{width:100%;overflow-x:auto;border:1px solid var(--border);border-radius:12px;background:var(--surface)}.er-container svg,.flow-container svg{display:block}
+  .schema-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(400px,1fr));gap:20px}
+  .schema-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;transition:border-color .3s}.schema-card:hover{border-color:var(--border-glow)}
+  .schema-card-header{padding:16px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)}
+  .schema-card-title{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600}
+  .schema-card-badge{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1px;text-transform:uppercase;padding:4px 10px;border-radius:6px;font-weight:600}
+  .badge-core{background:var(--accent-orange-dim);color:var(--accent-orange)}.badge-lookup{background:var(--accent-blue-dim);color:var(--accent-blue)}
+  .badge-hr{background:var(--accent-rose-dim);color:var(--accent-rose)}.badge-comp{background:var(--accent-green-dim);color:var(--accent-green)}
+  .badge-safety{background:var(--accent-amber-dim);color:var(--accent-amber)}.badge-audit{background:var(--accent-violet-dim);color:var(--accent-violet)}
+  .badge-view{background:var(--accent-teal-dim);color:var(--accent-teal)}
+  .schema-card-body{padding:12px 0;max-height:340px;overflow-y:auto}
+  .col-row{display:grid;grid-template-columns:24px 1fr 135px;align-items:center;padding:5px 20px;font-size:13px;transition:background .15s}.col-row:hover{background:rgba(255,255,255,.02)}
+  .col-icon{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700}.col-icon.pk{color:var(--accent-amber)}.col-icon.fk{color:var(--accent-rose)}.col-icon.col{color:var(--text-muted)}
+  .col-name{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text)}.col-type{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-muted);text-align:right}
+  .rel-table{width:100%;border-collapse:collapse;font-size:13px}
+  .rel-table thead th{text-align:left;padding:12px 16px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid var(--border);background:var(--surface)}
+  .rel-table tbody td{padding:10px 16px;border-bottom:1px solid var(--border);vertical-align:top}.rel-table tbody tr:hover{background:rgba(255,255,255,.015)}
+  .mono{font-family:'JetBrains Mono',monospace;font-size:12px}
+  .cardinality-badge{display:inline-block;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;padding:3px 10px;border-radius:5px}
+  .card-1m{background:var(--accent-green-dim);color:var(--accent-green)}.card-11{background:var(--accent-cyan-dim);color:var(--accent-cyan)}.card-ext{background:var(--accent-amber-dim);color:var(--accent-amber)}.card-self{background:var(--accent-violet-dim);color:var(--accent-violet)}
+  .legend{display:flex;flex-wrap:wrap;gap:24px;padding:16px 24px;background:var(--surface2);border-radius:10px;margin-bottom:24px;border:1px solid var(--border)}
+  .legend-item{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim)}.legend-swatch{width:14px;height:14px;border-radius:4px;border:2px solid}.legend-line{width:28px;height:3px;border-radius:2px}
+  .stats-bar{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:16px;margin-bottom:36px}
+  .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;text-align:center}
+  .stat-number{font-family:'Fraunces',serif;font-size:30px;font-weight:900}
+  .stat-number.green{color:var(--accent-green)}.stat-number.blue{color:var(--accent-blue)}.stat-number.amber{color:var(--accent-amber)}.stat-number.violet{color:var(--accent-violet)}.stat-number.rose{color:var(--accent-rose)}.stat-number.cyan{color:var(--accent-cyan)}.stat-number.orange{color:var(--accent-orange)}.stat-number.teal{color:var(--accent-teal)}
+  .stat-label{font-size:10px;color:var(--text-muted);margin-top:4px;font-family:'JetBrains Mono',monospace;letter-spacing:.5px}
+  @media(max-width:768px){.header,.tabs,.tab-content{padding-left:20px;padding-right:20px}.header h1{font-size:26px}.schema-grid{grid-template-columns:1fr}.tab{padding:14px 12px;font-size:11px}}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="header-tag">Module 4 · PostgreSQL</div>
+  <h1>Workforce Management<br>Database Design</h1>
+  <p>Complete worker lifecycle — registration, employment, gang/team organization, skill competency matrix, leave management, pay structure, training with VR/MR support, documents, next-of-kin, health & safety incidents, and biometric/IoT integration.</p>
+  <span class="dep">M1: Plantation Field Records</span><span class="dep">M3: Tapping Task Monitoring</span>
+</div>
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('er')">ER Diagram</div>
+  <div class="tab" onclick="switchTab('schema')">Table Schema</div>
+  <div class="tab" onclick="switchTab('relations')">Relationships</div>
+  <div class="tab" onclick="switchTab('flow')">Worker Lifecycle</div>
+</div>
+
+<div class="tab-content active" id="tab-er">
+  <div class="stats-bar">
+    <div class="stat-card"><div class="stat-number orange">4</div><div class="stat-label">Core Tables</div></div>
+    <div class="stat-card"><div class="stat-number rose">5</div><div class="stat-label">HR Tables</div></div>
+    <div class="stat-card"><div class="stat-number green">2</div><div class="stat-label">Compensation</div></div>
+    <div class="stat-card"><div class="stat-number amber">1</div><div class="stat-label">Safety Table</div></div>
+    <div class="stat-card"><div class="stat-number violet">1</div><div class="stat-label">Audit Table</div></div>
+    <div class="stat-card"><div class="stat-number blue">10</div><div class="stat-label">Lookups</div></div>
+    <div class="stat-card"><div class="stat-number teal">4</div><div class="stat-label">Views</div></div>
+    <div class="stat-card"><div class="stat-number cyan">4</div><div class="stat-label">Smart Triggers</div></div>
+  </div>
+  <div class="legend">
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--accent-orange-dim);border-color:var(--accent-orange)"></div>Core</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--accent-rose-dim);border-color:var(--accent-rose)"></div>HR / People</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--accent-green-dim);border-color:var(--accent-green)"></div>Compensation</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--accent-amber-dim);border-color:var(--accent-amber)"></div>Safety / Cross-Module</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--accent-blue-dim);border-color:var(--accent-blue)"></div>Lookup</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--accent-violet-dim);border-color:var(--accent-violet)"></div>Audit</div>
+    <div class="legend-item"><div class="legend-line" style="background:var(--accent-orange)"></div>Internal FK</div>
+    <div class="legend-item"><div class="legend-line" style="background:repeating-linear-gradient(90deg,var(--accent-amber) 0 6px,transparent 6px 10px)"></div>Cross-Module</div>
+  </div>
+  <div class="er-container" id="erDiagram"></div>
+</div>
+
+<div class="tab-content" id="tab-schema">
+  <div class="section-title">Table Definitions</div>
+  <div class="section-subtitle">All 23 tables organized by domain — Core identity, HR/People, Compensation, Safety, Audit, and Lookups.</div>
+  <div class="schema-grid" id="schemaGrid"></div>
+</div>
+
+<div class="tab-content" id="tab-relations">
+  <div class="section-title">Relationships & Cardinality</div>
+  <div class="section-subtitle">All foreign keys including the self-referencing reporting hierarchy and cross-module links.</div>
+  <div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;"><table class="rel-table" id="relTable"></table></div>
+</div>
+
+<div class="tab-content" id="tab-flow">
+  <div class="section-title">Worker Lifecycle & Data Flow</div>
+  <div class="section-subtitle">From recruitment and onboarding through active employment to separation — and the data entities engaged at each stage.</div>
+  <div class="flow-container" id="flowDiagram"></div>
+</div>
+
+<script>
+function switchTab(id){const t=['er','schema','relations','flow'];document.querySelectorAll('.tab').forEach((e,i)=>e.classList.toggle('active',t[i]===id));document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));document.getElementById('tab-'+id).classList.add('active')}
+
+const tables=[
+  {name:'worker',badge:'Core',bc:'badge-core',columns:[
+    {i:'PK',c:'pk',n:'worker_id',t:'SERIAL'},{i:'·',c:'col',n:'employee_code',t:'VARCHAR(30) UQ'},
+    {i:'·',c:'col',n:'full_name (generated)',t:'VARCHAR(200)'},{i:'·',c:'col',n:'date_of_birth / gender',t:'DATE / VARCHAR'},
+    {i:'·',c:'col',n:'national_id / passport',t:'VARCHAR'},
+    {i:'FK',c:'fk',n:'plantation_id',t:'INT → M1'},{i:'FK',c:'fk',n:'division_id',t:'INT → M1'},
+    {i:'FK',c:'fk',n:'category_code',t:'VARCHAR(30)'},{i:'FK',c:'fk',n:'employment_type_code',t:'VARCHAR(20)'},
+    {i:'FK',c:'fk',n:'worker_status',t:'VARCHAR(20)'},{i:'FK',c:'fk',n:'primary_field_id',t:'INT → M1'},
+    {i:'FK',c:'fk',n:'reports_to_id',t:'INT (self-ref)'},{i:'FK',c:'fk',n:'assigned_gang_id',t:'INT'},
+    {i:'·',c:'col',n:'hire_date / termination_date',t:'DATE'},{i:'·',c:'col',n:'base_pay / currency',t:'NUMERIC / VARCHAR'},
+    {i:'·',c:'col',n:'biometric_id / nfc_badge_uid',t:'VARCHAR'},{i:'·',c:'col',n:'gps_wearable_uid',t:'VARCHAR'}]},
+  {name:'gang',badge:'Core',bc:'badge-core',columns:[
+    {i:'PK',c:'pk',n:'gang_id',t:'SERIAL'},{i:'FK',c:'fk',n:'plantation_id',t:'INT → M1'},
+    {i:'FK',c:'fk',n:'division_id / primary_field_id',t:'INT → M1'},{i:'FK',c:'fk',n:'leader_worker_id',t:'INT'},
+    {i:'·',c:'col',n:'gang_code / name',t:'VARCHAR'},{i:'·',c:'col',n:'target_size / current_size',t:'INT'},
+    {i:'·',c:'col',n:'secondary_field_ids',t:'INT[]'}]},
+  {name:'worker_skill',badge:'Core',bc:'badge-core',columns:[
+    {i:'PK',c:'pk',n:'skill_id',t:'SERIAL'},{i:'FK',c:'fk',n:'worker_id',t:'INT'},
+    {i:'FK',c:'fk',n:'skill_code',t:'VARCHAR(30)'},{i:'FK',c:'fk',n:'proficiency_level',t:'VARCHAR(20)'},
+    {i:'·',c:'col',n:'assessed_date / by',t:'DATE / VARCHAR'},
+    {i:'·',c:'col',n:'is_certified / cert_expiry',t:'BOOLEAN / DATE'}]},
+  {name:'worker_field_assignment',badge:'Core',bc:'badge-core',columns:[
+    {i:'PK',c:'pk',n:'assignment_id',t:'SERIAL'},{i:'FK',c:'fk',n:'worker_id',t:'INT'},
+    {i:'FK',c:'fk',n:'field_id',t:'INT → M1'},{i:'FK',c:'fk',n:'gang_id',t:'INT'},
+    {i:'·',c:'col',n:'assignment_type',t:'VARCHAR(20)'},{i:'·',c:'col',n:'effective_from / to',t:'DATE'}]},
+  {name:'worker_next_of_kin',badge:'HR',bc:'badge-hr',columns:[
+    {i:'PK',c:'pk',n:'kin_id',t:'SERIAL'},{i:'FK',c:'fk',n:'worker_id',t:'INT'},
+    {i:'FK',c:'fk',n:'relationship_code',t:'VARCHAR(20)'},{i:'·',c:'col',n:'kin_name / phone',t:'VARCHAR'},
+    {i:'·',c:'col',n:'is_emergency_contact',t:'BOOLEAN'},{i:'·',c:'col',n:'is_beneficiary / pct',t:'BOOLEAN / NUMERIC'}]},
+  {name:'worker_document',badge:'HR',bc:'badge-hr',columns:[
+    {i:'PK',c:'pk',n:'document_id',t:'SERIAL'},{i:'FK',c:'fk',n:'worker_id',t:'INT'},
+    {i:'FK',c:'fk',n:'doc_type_code',t:'VARCHAR(30)'},{i:'·',c:'col',n:'document_number',t:'VARCHAR(100)'},
+    {i:'·',c:'col',n:'expiry_date',t:'DATE'},{i:'·',c:'col',n:'file_url / verified',t:'VARCHAR / BOOLEAN'}]},
+  {name:'worker_leave',badge:'HR',bc:'badge-hr',columns:[
+    {i:'PK',c:'pk',n:'leave_id',t:'SERIAL'},{i:'FK',c:'fk',n:'worker_id',t:'INT'},
+    {i:'FK',c:'fk',n:'leave_type_code',t:'VARCHAR(20)'},{i:'FK',c:'fk',n:'approved_by',t:'INT (worker)'},
+    {i:'·',c:'col',n:'start / end / total_days',t:'DATE / INT'},{i:'·',c:'col',n:'approval_status',t:'VARCHAR(20)'}]},
+  {name:'worker_leave_balance',badge:'HR',bc:'badge-hr',columns:[
+    {i:'PK',c:'pk',n:'balance_id',t:'SERIAL'},{i:'FK',c:'fk',n:'worker_id',t:'INT'},
+    {i:'FK',c:'fk',n:'leave_type_code',t:'VARCHAR(20)'},{i:'·',c:'col',n:'balance_year',t:'INT'},
+    {i:'·',c:'col',n:'entitled / taken / pending',t:'NUMERIC(5,1)'},{i:'·',c:'col',n:'remaining_days (gen)',t:'NUMERIC(5,1)'}]},
+  {name:'worker_training',badge:'HR',bc:'badge-hr',columns:[
+    {i:'PK',c:'pk',n:'training_id',t:'SERIAL'},{i:'FK',c:'fk',n:'worker_id',t:'INT'},
+    {i:'FK',c:'fk',n:'training_type_code',t:'VARCHAR(30)'},{i:'·',c:'col',n:'training_method',t:'VARCHAR(30)'},
+    {i:'·',c:'col',n:'assessment_score / passed',t:'NUMERIC / BOOL'},{i:'·',c:'col',n:'certificate_expiry',t:'DATE'}]},
+  {name:'worker_pay_structure',badge:'Compensation',bc:'badge-comp',columns:[
+    {i:'PK',c:'pk',n:'pay_structure_id',t:'SERIAL'},{i:'FK',c:'fk',n:'worker_id',t:'INT'},
+    {i:'FK',c:'fk',n:'component_code',t:'VARCHAR(30)'},{i:'·',c:'col',n:'amount / currency',t:'NUMERIC / VARCHAR'},
+    {i:'·',c:'col',n:'frequency',t:'VARCHAR(20)'},{i:'·',c:'col',n:'effective_from / to',t:'DATE'}]},
+  {name:'worker_safety_incident',badge:'Safety',bc:'badge-safety',columns:[
+    {i:'PK',c:'pk',n:'incident_id',t:'SERIAL'},{i:'FK',c:'fk',n:'worker_id',t:'INT'},
+    {i:'FK',c:'fk',n:'plantation_id / field_id',t:'INT → M1'},{i:'·',c:'col',n:'incident_type / severity',t:'VARCHAR'},
+    {i:'·',c:'col',n:'days_lost',t:'INT'},{i:'·',c:'col',n:'root_cause / corrective_action',t:'TEXT'}]},
+  {name:'worker_status_change_log',badge:'Audit',bc:'badge-audit',columns:[
+    {i:'PK',c:'pk',n:'log_id',t:'SERIAL'},{i:'FK',c:'fk',n:'worker_id',t:'INT'},
+    {i:'FK',c:'fk',n:'from/to_status',t:'VARCHAR(20)'},{i:'·',c:'col',n:'change_date / effective',t:'DATE'},
+    {i:'·',c:'col',n:'from/to_plantation_id',t:'INT → M1'},{i:'·',c:'col',n:'blockchain_tx_hash',t:'VARCHAR(128)'}]},
+  // Lookups
+  {name:'lu_worker_category',badge:'Lookup',bc:'badge-lookup',columns:[{i:'PK',c:'pk',n:'category_code',t:'VARCHAR(30)'},{i:'·',c:'col',n:'category_name / group',t:'VARCHAR'}]},
+  {name:'lu_employment_type',badge:'Lookup',bc:'badge-lookup',columns:[{i:'PK',c:'pk',n:'employment_type_code',t:'VARCHAR(20)'},{i:'·',c:'col',n:'employment_type_name',t:'VARCHAR(100)'}]},
+  {name:'lu_worker_status',badge:'Lookup',bc:'badge-lookup',columns:[{i:'PK',c:'pk',n:'status_code',t:'VARCHAR(20)'},{i:'·',c:'col',n:'status_name',t:'VARCHAR(100)'},{i:'·',c:'col',n:'is_active_duty',t:'BOOLEAN'}]},
+  {name:'lu_skill',badge:'Lookup',bc:'badge-lookup',columns:[{i:'PK',c:'pk',n:'skill_code',t:'VARCHAR(30)'},{i:'·',c:'col',n:'skill_name / category',t:'VARCHAR'}]},
+  {name:'lu_proficiency_level',badge:'Lookup',bc:'badge-lookup',columns:[{i:'PK',c:'pk',n:'level_code',t:'VARCHAR(20)'},{i:'·',c:'col',n:'level_name / score',t:'VARCHAR / INT'}]},
+  {name:'lu_leave_type',badge:'Lookup',bc:'badge-lookup',columns:[{i:'PK',c:'pk',n:'leave_type_code',t:'VARCHAR(20)'},{i:'·',c:'col',n:'leave_type_name',t:'VARCHAR(100)'},{i:'·',c:'col',n:'is_paid / max_days',t:'BOOL / INT'}]},
+  {name:'lu_relationship_type',badge:'Lookup',bc:'badge-lookup',columns:[{i:'PK',c:'pk',n:'relationship_code',t:'VARCHAR(20)'},{i:'·',c:'col',n:'relationship_name',t:'VARCHAR(50)'}]},
+  {name:'lu_document_type',badge:'Lookup',bc:'badge-lookup',columns:[{i:'PK',c:'pk',n:'doc_type_code',t:'VARCHAR(30)'},{i:'·',c:'col',n:'doc_type_name',t:'VARCHAR(100)'},{i:'·',c:'col',n:'is_mandatory / validity',t:'BOOL / INT'}]},
+  {name:'lu_pay_component',badge:'Lookup',bc:'badge-lookup',columns:[{i:'PK',c:'pk',n:'component_code',t:'VARCHAR(30)'},{i:'·',c:'col',n:'component_name / type',t:'VARCHAR'},{i:'·',c:'col',n:'is_taxable',t:'BOOLEAN'}]},
+  {name:'lu_training_type',badge:'Lookup',bc:'badge-lookup',columns:[{i:'PK',c:'pk',n:'training_type_code',t:'VARCHAR(30)'},{i:'·',c:'col',n:'training_type_name',t:'VARCHAR(200)'},{i:'·',c:'col',n:'category / mandatory',t:'VARCHAR / BOOL'}]},
+];
+
+const sg=document.getElementById('schemaGrid');
+tables.forEach(t=>{const cols=t.columns.map(c=>`<div class="col-row"><span class="col-icon ${c.c}">${c.i}</span><span class="col-name">${c.n}</span><span class="col-type">${c.t}</span></div>`).join('');sg.innerHTML+=`<div class="schema-card"><div class="schema-card-header"><span class="schema-card-title">${t.name}</span><span class="schema-card-badge ${t.bc}">${t.badge}</span></div><div class="schema-card-body">${cols}</div></div>`});
+
+const rels=[
+  {f:'worker',t:'worker',fk:'reports_to_id',card:'Self',cls:'card-self',d:'Reporting hierarchy (self-ref)'},
+  {f:'worker',t:'gang',fk:'leader_worker_id',card:'1:1',cls:'card-11',d:'Worker leads a gang'},
+  {f:'worker',t:'worker_skill',fk:'worker_id',card:'1:M',cls:'card-1m',d:'Skills per worker'},
+  {f:'worker',t:'worker_field_assignment',fk:'worker_id',card:'1:M',cls:'card-1m',d:'Field assignment history'},
+  {f:'worker',t:'worker_next_of_kin',fk:'worker_id',card:'1:M',cls:'card-1m',d:'Next of kin / dependents'},
+  {f:'worker',t:'worker_document',fk:'worker_id',card:'1:M',cls:'card-1m',d:'Documents per worker'},
+  {f:'worker',t:'worker_leave',fk:'worker_id',card:'1:M',cls:'card-1m',d:'Leave applications'},
+  {f:'worker',t:'worker_leave_balance',fk:'worker_id',card:'1:M',cls:'card-1m',d:'Annual leave balances'},
+  {f:'worker',t:'worker_training',fk:'worker_id',card:'1:M',cls:'card-1m',d:'Training records'},
+  {f:'worker',t:'worker_pay_structure',fk:'worker_id',card:'1:M',cls:'card-1m',d:'Pay components'},
+  {f:'worker',t:'worker_safety_incident',fk:'worker_id',card:'1:M',cls:'card-1m',d:'Safety incidents'},
+  {f:'worker',t:'worker_status_change_log',fk:'worker_id',card:'1:M',cls:'card-1m',d:'Status change audit'},
+  {f:'worker',t:'worker_leave',fk:'approved_by',card:'1:M',cls:'card-1m',d:'Leave approval by manager'},
+  {f:'gang',t:'worker',fk:'assigned_gang_id',card:'1:M',cls:'card-1m',d:'Gang membership'},
+  {f:'gang',t:'worker_field_assignment',fk:'gang_id',card:'1:M',cls:'card-1m',d:'Gang field assignments'},
+  // Lookups
+  {f:'lu_worker_category',t:'worker',fk:'category_code',card:'1:M',cls:'card-1m',d:'Role classification'},
+  {f:'lu_employment_type',t:'worker',fk:'employment_type_code',card:'1:M',cls:'card-1m',d:'Employment type'},
+  {f:'lu_worker_status',t:'worker',fk:'worker_status',card:'1:M',cls:'card-1m',d:'Current status'},
+  {f:'lu_skill',t:'worker_skill',fk:'skill_code',card:'1:M',cls:'card-1m',d:'Skill catalog'},
+  {f:'lu_proficiency_level',t:'worker_skill',fk:'proficiency_level',card:'1:M',cls:'card-1m',d:'Proficiency grade'},
+  {f:'lu_leave_type',t:'worker_leave',fk:'leave_type_code',card:'1:M',cls:'card-1m',d:'Leave type'},
+  {f:'lu_leave_type',t:'worker_leave_balance',fk:'leave_type_code',card:'1:M',cls:'card-1m',d:'Balance per type'},
+  {f:'lu_relationship_type',t:'worker_next_of_kin',fk:'relationship_code',card:'1:M',cls:'card-1m',d:'Kin relationship'},
+  {f:'lu_document_type',t:'worker_document',fk:'doc_type_code',card:'1:M',cls:'card-1m',d:'Document type'},
+  {f:'lu_pay_component',t:'worker_pay_structure',fk:'component_code',card:'1:M',cls:'card-1m',d:'Pay component type'},
+  {f:'lu_training_type',t:'worker_training',fk:'training_type_code',card:'1:M',cls:'card-1m',d:'Training type'},
+  // Cross-module
+  {f:'plantation (M1)',t:'worker',fk:'plantation_id',card:'1:M',cls:'card-ext',d:'Workers per plantation'},
+  {f:'division (M1)',t:'worker',fk:'division_id',card:'1:M',cls:'card-ext',d:'Workers per division'},
+  {f:'field (M1)',t:'worker',fk:'primary_field_id',card:'1:M',cls:'card-ext',d:'Primary field assignment'},
+  {f:'field (M1)',t:'worker_field_assignment',fk:'field_id',card:'1:M',cls:'card-ext',d:'Field assignment history'},
+  {f:'field (M1)',t:'worker_safety_incident',fk:'field_id',card:'1:M',cls:'card-ext',d:'Incident location'},
+  {f:'plantation (M1)',t:'gang',fk:'plantation_id',card:'1:M',cls:'card-ext',d:'Gangs per plantation'},
+  {f:'field (M1)',t:'gang',fk:'primary_field_id',card:'1:M',cls:'card-ext',d:'Gang field assignment'},
+];
+const rt=document.getElementById('relTable');
+rt.innerHTML=`<thead><tr><th>From</th><th>To</th><th>FK</th><th>Card.</th><th>Description</th></tr></thead><tbody>${rels.map(r=>`<tr><td class="mono">${r.f}</td><td class="mono">${r.t}</td><td class="mono">${r.fk}</td><td><span class="cardinality-badge ${r.cls}">${r.card}</span></td><td style="color:var(--text-dim)">${r.d}</td></tr>`).join('')}</tbody>`;
+
+// ER DIAGRAM
+function renderER(){
+  const W=1320,H=760;
+  const E={
+    plantation:{x:30,y:12,w:130,h:36,color:'#fbbf24',bg:'rgba(251,191,36,.05)',label:'plantation',sub:'M1'},
+    division:{x:185,y:12,w:110,h:36,color:'#fbbf24',bg:'rgba(251,191,36,.05)',label:'division',sub:'M1'},
+    field_m1:{x:320,y:12,w:100,h:36,color:'#fbbf24',bg:'rgba(251,191,36,.05)',label:'field',sub:'M1'},
+    worker:{x:300,y:120,w:200,h:66,color:'#fb923c',bg:'rgba(251,146,60,.06)',label:'worker',sub:'Core Identity'},
+    gang:{x:60,y:130,w:150,h:52,color:'#fb923c',bg:'rgba(251,146,60,.06)',label:'gang',sub:'Team / Tapper Gang'},
+    skill:{x:60,y:260,w:170,h:46,color:'#fb923c',bg:'rgba(251,146,60,.06)',label:'worker_skill',sub:'Competency matrix'},
+    assignment:{x:60,y:370,w:200,h:46,color:'#fb923c',bg:'rgba(251,146,60,.06)',label:'worker_field_assignment',sub:'Field history'},
+    nok:{x:580,y:100,w:180,h:46,color:'#fb7185',bg:'rgba(251,113,133,.06)',label:'worker_next_of_kin',sub:'Emergency contacts'},
+    doc:{x:580,y:190,w:180,h:46,color:'#fb7185',bg:'rgba(251,113,133,.06)',label:'worker_document',sub:'IDs & certificates'},
+    leave:{x:580,y:280,w:170,h:46,color:'#fb7185',bg:'rgba(251,113,133,.06)',label:'worker_leave',sub:'Applications'},
+    leave_bal:{x:580,y:370,w:190,h:46,color:'#fb7185',bg:'rgba(251,113,133,.06)',label:'worker_leave_balance',sub:'Annual balances'},
+    training:{x:580,y:460,w:180,h:46,color:'#fb7185',bg:'rgba(251,113,133,.06)',label:'worker_training',sub:'VR/MR/Classroom'},
+    pay:{x:300,y:310,w:200,h:46,color:'#4ade80',bg:'rgba(74,222,128,.06)',label:'worker_pay_structure',sub:'Pay components'},
+    safety:{x:300,y:410,w:210,h:46,color:'#fbbf24',bg:'rgba(251,191,36,.06)',label:'worker_safety_incident',sub:'Injuries & near-misses'},
+    status_log:{x:300,y:510,w:220,h:46,color:'#a78bfa',bg:'rgba(167,139,250,.06)',label:'worker_status_change_log',sub:'Blockchain audit'},
+    // Lookups
+    lu_cat:{x:1000,y:80,w:170,h:34,color:'#60a5fa',bg:'rgba(96,165,250,.05)',label:'lu_worker_category',sub:''},
+    lu_emp:{x:1000,y:135,w:170,h:34,color:'#60a5fa',bg:'rgba(96,165,250,.05)',label:'lu_employment_type',sub:''},
+    lu_stat:{x:1000,y:190,w:170,h:34,color:'#60a5fa',bg:'rgba(96,165,250,.05)',label:'lu_worker_status',sub:''},
+    lu_skill:{x:1000,y:250,w:150,h:34,color:'#60a5fa',bg:'rgba(96,165,250,.05)',label:'lu_skill',sub:''},
+    lu_prof:{x:1000,y:305,w:170,h:34,color:'#60a5fa',bg:'rgba(96,165,250,.05)',label:'lu_proficiency_level',sub:''},
+    lu_leave:{x:1000,y:360,w:150,h:34,color:'#60a5fa',bg:'rgba(96,165,250,.05)',label:'lu_leave_type',sub:''},
+    lu_rel:{x:1000,y:415,w:170,h:34,color:'#60a5fa',bg:'rgba(96,165,250,.05)',label:'lu_relationship_type',sub:''},
+    lu_doc:{x:1000,y:470,w:170,h:34,color:'#60a5fa',bg:'rgba(96,165,250,.05)',label:'lu_document_type',sub:''},
+    lu_pay:{x:1000,y:525,w:160,h:34,color:'#60a5fa',bg:'rgba(96,165,250,.05)',label:'lu_pay_component',sub:''},
+    lu_trn:{x:1000,y:580,w:160,h:34,color:'#60a5fa',bg:'rgba(96,165,250,.05)',label:'lu_training_type',sub:''},
+  };
+  function anc(e,s){switch(s){case'top':return{x:e.x+e.w/2,y:e.y};case'bottom':return{x:e.x+e.w/2,y:e.y+e.h};case'left':return{x:e.x,y:e.y+e.h/2};case'right':return{x:e.x+e.w,y:e.y+e.h/2}}}
+  const C=[
+    ['plantation','bottom','worker','top','#fbbf24',true],['division','bottom','worker','top','#fbbf24',true],
+    ['field_m1','bottom','worker','top','#fbbf24',true],['plantation','bottom','gang','top','#fbbf24',true],
+    ['worker','left','gang','right','#fb923c',false],['worker','left','skill','top','#fb923c',false],
+    ['worker','left','assignment','top','#fb923c',false],
+    ['worker','right','nok','left','#fb7185',false],['worker','right','doc','left','#fb7185',false],
+    ['worker','right','leave','left','#fb7185',false],['worker','right','leave_bal','left','#fb7185',false],
+    ['worker','right','training','left','#fb7185',false],
+    ['worker','bottom','pay','top','#4ade80',false],['worker','bottom','safety','top','#fbbf24',false],
+    ['worker','bottom','status_log','top','#a78bfa',false],
+    ['lu_cat','left','worker','right','#60a5fa',true],['lu_emp','left','worker','right','#60a5fa',true],
+    ['lu_stat','left','worker','right','#60a5fa',true],['lu_skill','left','skill','right','#60a5fa',true],
+    ['lu_prof','left','skill','right','#60a5fa',true],['lu_leave','left','leave','right','#60a5fa',true],
+    ['lu_rel','left','nok','right','#60a5fa',true],['lu_doc','left','doc','right','#60a5fa',true],
+    ['lu_pay','left','pay','right','#60a5fa',true],['lu_trn','left','training','right','#60a5fa',true],
+  ];
+  let svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">
+  <defs><marker id="ag" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#fb923c" opacity=".7"/></marker><marker id="ab" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#60a5fa" opacity=".7"/></marker><marker id="aa" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#fbbf24" opacity=".7"/></marker><marker id="ar" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#fb7185" opacity=".7"/></marker><marker id="av" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#a78bfa" opacity=".7"/></marker><marker id="ac" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#4ade80" opacity=".7"/></marker></defs>
+  <rect x="15" y="3" width="425" height="48" rx="8" fill="#fbbf24" fill-opacity=".03" stroke="#fbbf24" stroke-width="1" stroke-dasharray="6,4" opacity=".3"/>
+  <text x="455" y="32" fill="#fbbf24" font-family="JetBrains Mono,monospace" font-size="10" opacity=".5">MODULE 1</text>`;
+  C.forEach(([fk,fs,tk,ts,color,dashed])=>{const a=anc(E[fk],fs),b=anc(E[tk],ts);const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;let p;
+  if(fs==='bottom'&&ts==='top')p=`M${a.x},${a.y} C${a.x},${my} ${b.x},${my} ${b.x},${b.y}`;
+  else if(fs==='right'&&ts==='left')p=`M${a.x},${a.y} C${mx},${a.y} ${mx},${b.y} ${b.x},${b.y}`;
+  else if(fs==='left'&&ts==='right')p=`M${a.x},${a.y} C${mx},${a.y} ${mx},${b.y} ${b.x},${b.y}`;
+  else if(fs==='left'&&ts==='top')p=`M${a.x},${a.y} C${a.x-40},${a.y} ${b.x},${a.y} ${b.x},${b.y}`;
+  else p=`M${a.x},${a.y} C${mx},${a.y} ${mx},${b.y} ${b.x},${b.y}`;
+  const mc=color==='#fb923c'?'g':color==='#60a5fa'?'b':color==='#fbbf24'?'a':color==='#fb7185'?'r':color==='#a78bfa'?'v':'c';
+  svg+=`<path d="${p}" fill="none" stroke="${color}" stroke-width="1.3" opacity=".4" ${dashed?'stroke-dasharray="5,4"':''} marker-end="url(#a${mc})"/>`});
+  Object.values(E).forEach(e=>{const isM=e.sub==='M1';svg+=`<rect x="${e.x}" y="${e.y}" width="${e.w}" height="${e.h}" rx="8" fill="${e.bg}" stroke="${e.color}" stroke-width="${isM?'1':'1.5'}" ${isM?'stroke-dasharray="4,3"':''}/>`;svg+=`<text x="${e.x+e.w/2}" y="${e.y+(e.h>50?24:17)}" text-anchor="middle" fill="${e.color}" font-family="JetBrains Mono,monospace" font-size="${e.h>50?'11.5':'10.5'}" font-weight="600">${e.label}</text>`;if(e.sub&&!isM)svg+=`<text x="${e.x+e.w/2}" y="${e.y+(e.h>50?42:32)}" text-anchor="middle" fill="#8890a6" font-family="DM Sans,sans-serif" font-size="9.5">${e.sub}</text>`});
+  // Self-ref arc for reports_to
+  svg+=`<path d="M385,120 C385,85 430,85 430,120" fill="none" stroke="#a78bfa" stroke-width="1.3" opacity=".4" marker-end="url(#av)"/>`;
+  svg+=`<text x="408" y="80" text-anchor="middle" fill="#a78bfa" font-family="DM Sans" font-size="9" opacity=".6">reports_to</text>`;
+  svg+=`</svg>`;document.getElementById('erDiagram').innerHTML=svg}
+
+// LIFECYCLE FLOW
+function renderFlow(){
+  const W=1200,H=640;
+  let svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">
+  <defs><marker id="fg" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#fb923c" opacity=".8"/></marker></defs>`;
+  const lanes=[{x:25,w:180,label:'RECRUITMENT',color:'#22d3ee'},{x:220,w:180,label:'ONBOARDING',color:'#fbbf24'},{x:415,w:195,label:'ACTIVE EMPLOYMENT',color:'#4ade80'},{x:625,w:180,label:'DEVELOPMENT',color:'#a78bfa'},{x:820,w:195,label:'LIFECYCLE EVENTS',color:'#fb7185'},{x:1025,w:150,label:'SEPARATION',color:'#fb923c'}];
+  lanes.forEach(l=>{svg+=`<rect x="${l.x}" y="50" width="${l.w}" height="550" rx="12" fill="${l.color}" fill-opacity=".03" stroke="${l.color}" stroke-width="1" opacity=".2"/>`;svg+=`<text x="${l.x+l.w/2}" y="36" text-anchor="middle" fill="${l.color}" font-family="JetBrains Mono,monospace" font-size="10" font-weight="600" letter-spacing="1.5" opacity=".7">${l.label}</text>`});
+  const B=[
+    {x:40,y:80,w:150,h:48,l:'Register Worker',s:'worker table',c:'#22d3ee'},
+    {x:40,y:165,w:150,h:48,l:'Document Upload',s:'worker_document',c:'#22d3ee'},
+    {x:40,y:250,w:150,h:48,l:'Biometric Enroll',s:'biometric_id / nfc',c:'#22d3ee'},
+    {x:40,y:340,w:150,h:44,l:'Next of Kin',s:'worker_next_of_kin',c:'#22d3ee'},
+    {x:235,y:80,w:150,h:48,l:'Assign Plantation',s:'plantation_id',c:'#fbbf24'},
+    {x:235,y:165,w:150,h:48,l:'Assign Gang / Field',s:'gang + field_assignment',c:'#fbbf24'},
+    {x:235,y:250,w:150,h:48,l:'Set Pay Structure',s:'worker_pay_structure',c:'#fbbf24'},
+    {x:235,y:340,w:150,h:44,l:'Induction Training',s:'worker_training',c:'#fbbf24'},
+    {x:430,y:80,w:165,h:48,l:'Daily Tapping',s:'→ tapping_task (M3)',c:'#4ade80'},
+    {x:430,y:165,w:165,h:48,l:'Skill Assessment',s:'worker_skill matrix',c:'#4ade80'},
+    {x:430,y:250,w:165,h:48,l:'Performance Track',s:'tapper_performance (M3)',c:'#4ade80'},
+    {x:430,y:340,w:165,h:44,l:'Attendance Track',s:'→ Module 6',c:'#4ade80'},
+    {x:430,y:430,w:165,h:44,l:'Activity Logging',s:'→ Module 5',c:'#4ade80'},
+    {x:640,y:80,w:150,h:48,l:'Training Programs',s:'VR / MR / Field',c:'#a78bfa'},
+    {x:640,y:165,w:150,h:48,l:'Skill Upgrades',s:'proficiency_level ↑',c:'#a78bfa'},
+    {x:640,y:250,w:150,h:48,l:'Certifications',s:'cert_number / expiry',c:'#a78bfa'},
+    {x:640,y:340,w:150,h:44,l:'Promotions',s:'category_code change',c:'#a78bfa'},
+    {x:835,y:80,w:165,h:48,l:'Leave Management',s:'worker_leave',c:'#fb7185'},
+    {x:835,y:165,w:165,h:48,l:'Leave Balance',s:'auto-calculated',c:'#fb7185'},
+    {x:835,y:250,w:165,h:48,l:'Safety Incidents',s:'worker_safety_incident',c:'#fb7185'},
+    {x:835,y:340,w:165,h:48,l:'Field Transfers',s:'worker_field_assignment',c:'#fb7185'},
+    {x:835,y:430,w:165,h:44,l:'Document Renewal',s:'vw_expiring_documents',c:'#fb7185'},
+    {x:1040,y:80,w:120,h:48,l:'Resignation',s:'status → RESIGNED',c:'#fb923c'},
+    {x:1040,y:165,w:120,h:48,l:'Termination',s:'status → TERMINATED',c:'#fb923c'},
+    {x:1040,y:250,w:120,h:48,l:'Retirement',s:'status → RETIRED',c:'#fb923c'},
+    {x:1040,y:340,w:120,h:48,l:'Transfer Out',s:'status → TRANSFERRED',c:'#fb923c'},
+    {x:1040,y:430,w:120,h:44,l:'Status Log',s:'blockchain_tx_hash',c:'#fb923c'},
+  ];
+  B.forEach(b=>{svg+=`<rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="8" fill="${b.c}" fill-opacity=".08" stroke="${b.c}" stroke-width="1.2"/>`;svg+=`<text x="${b.x+b.w/2}" y="${b.y+19}" text-anchor="middle" fill="${b.c}" font-family="JetBrains Mono,monospace" font-size="10" font-weight="600">${b.l}</text>`;if(b.s)svg+=`<text x="${b.x+b.w/2}" y="${b.y+33}" text-anchor="middle" fill="#8890a6" font-family="DM Sans,sans-serif" font-size="9">${b.s}</text>`});
+  // Vertical arrows
+  const va=[[115,128,115,165],[115,213,115,250],[115,298,115,340],[310,128,310,165],[310,213,310,250],[310,298,310,340],[512,128,512,165],[512,213,512,250],[512,298,512,340],[512,384,512,430],[715,128,715,165],[715,213,715,250],[715,298,715,340],[917,128,917,165],[917,213,917,250],[917,298,917,340],[917,388,917,430],[1100,128,1100,165],[1100,213,1100,250],[1100,298,1100,340],[1100,388,1100,430]];
+  va.forEach(a=>svg+=`<line x1="${a[0]}" y1="${a[1]}" x2="${a[2]}" y2="${a[3]}" stroke="#fb923c" stroke-width="1.2" opacity=".35" marker-end="url(#fg)"/>`);
+  // Cross arrows
+  [[190,104,235,104],[385,104,430,104],[595,104,640,104],[790,104,835,104],[1000,104,1040,104],[385,189,430,189],[790,189,835,189]].forEach(a=>svg+=`<line x1="${a[0]}" y1="${a[1]}" x2="${a[2]}" y2="${a[3]}" stroke="#fb923c" stroke-width="1.2" opacity=".35" marker-end="url(#fg)"/>`);
+  svg+=`</svg>`;document.getElementById('flowDiagram').innerHTML=svg}
+
+renderER();renderFlow();
+</script>
+</body>
+</html>

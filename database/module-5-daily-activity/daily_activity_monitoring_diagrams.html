@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Daily Activity Monitoring — Database Design</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,500;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;600&family=Fraunces:opsz,wght@9..144,700;9..144,900&display=swap');
+  :root{--bg:#0f1117;--surface:#181b24;--surface2:#1e2230;--border:#2a2f3e;--border-glow:#3d4663;--text:#e1e4ed;--text-dim:#8890a6;--text-muted:#5c6380;--accent-green:#4ade80;--accent-green-dim:rgba(74,222,128,.12);--accent-blue:#60a5fa;--accent-blue-dim:rgba(96,165,250,.10);--accent-amber:#fbbf24;--accent-amber-dim:rgba(251,191,36,.10);--accent-rose:#fb7185;--accent-rose-dim:rgba(251,113,133,.10);--accent-violet:#a78bfa;--accent-violet-dim:rgba(167,139,250,.10);--accent-cyan:#22d3ee;--accent-cyan-dim:rgba(34,211,238,.10);--accent-teal:#2dd4bf;--accent-teal-dim:rgba(45,212,191,.10);--accent-lime:#a3e635;--accent-lime-dim:rgba(163,230,53,.10)}
+  *{margin:0;padding:0;box-sizing:border-box}body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min-height:100vh;overflow-x:hidden}
+  .header{padding:48px 48px 32px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,rgba(163,230,53,.05) 0%,transparent 100%)}
+  .header-tag{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:2.5px;text-transform:uppercase;color:var(--accent-lime);margin-bottom:12px;display:flex;align-items:center;gap:8px}
+  .header-tag::before{content:'';display:inline-block;width:8px;height:8px;background:var(--accent-lime);border-radius:50%;box-shadow:0 0 8px var(--accent-lime)}
+  .header h1{font-family:'Fraunces',serif;font-weight:900;font-size:36px;line-height:1.15;letter-spacing:-.5px;background:linear-gradient(135deg,#e1e4ed 30%,#a3e635 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+  .header p{color:var(--text-dim);font-size:15px;margin-top:10px;max-width:720px;line-height:1.6}
+  .header .dep{display:inline-block;margin-top:12px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--accent-amber);background:var(--accent-amber-dim);padding:5px 12px;border-radius:6px;margin-right:8px}
+  .tabs{display:flex;gap:0;padding:0 48px;border-bottom:1px solid var(--border);background:var(--surface);position:sticky;top:0;z-index:100}
+  .tab{padding:16px 24px;font-size:13px;font-weight:500;color:var(--text-muted);cursor:pointer;border-bottom:2px solid transparent;transition:all .2s;user-select:none;font-family:'DM Sans',sans-serif}.tab:hover{color:var(--text-dim)}.tab.active{color:var(--accent-lime);border-bottom-color:var(--accent-lime)}
+  .tab-content{display:none;padding:40px 48px 60px}.tab-content.active{display:block}
+  .section-title{font-family:'Fraunces',serif;font-weight:700;font-size:22px;margin-bottom:6px}.section-subtitle{color:var(--text-dim);font-size:13px;margin-bottom:32px;line-height:1.5}
+  .er-container,.flow-container{width:100%;overflow-x:auto;border:1px solid var(--border);border-radius:12px;background:var(--surface)}.er-container svg,.flow-container svg{display:block}
+  .schema-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(400px,1fr));gap:20px}
+  .schema-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;transition:border-color .3s}.schema-card:hover{border-color:var(--border-glow)}
+  .schema-card-header{padding:16px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)}
+  .schema-card-title{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600}
+  .schema-card-badge{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1px;text-transform:uppercase;padding:4px 10px;border-radius:6px;font-weight:600}
+  .badge-core{background:var(--accent-lime-dim);color:var(--accent-lime)}.badge-lookup{background:var(--accent-blue-dim);color:var(--accent-blue)}.badge-evidence{background:var(--accent-cyan-dim);color:var(--accent-cyan)}.badge-inspect{background:var(--accent-violet-dim);color:var(--accent-violet)}.badge-analytics{background:var(--accent-teal-dim);color:var(--accent-teal)}.badge-material{background:var(--accent-amber-dim);color:var(--accent-amber)}
+  .schema-card-body{padding:12px 0;max-height:350px;overflow-y:auto}
+  .col-row{display:grid;grid-template-columns:24px 1fr 135px;align-items:center;padding:5px 20px;font-size:13px;transition:background .15s}.col-row:hover{background:rgba(255,255,255,.02)}
+  .col-icon{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700}.col-icon.pk{color:var(--accent-amber)}.col-icon.fk{color:var(--accent-rose)}.col-icon.col{color:var(--text-muted)}
+  .col-name{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text)}.col-type{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-muted);text-align:right}
+  .rel-table{width:100%;border-collapse:collapse;font-size:13px}.rel-table thead th{text-align:left;padding:12px 16px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid var(--border);background:var(--surface)}
+  .rel-table tbody td{padding:10px 16px;border-bottom:1px solid var(--border);vertical-align:top}.rel-table tbody tr:hover{background:rgba(255,255,255,.015)}
+  .mono{font-family:'JetBrains Mono',monospace;font-size:12px}
+  .cb{display:inline-block;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;padding:3px 10px;border-radius:5px}
+  .c1m{background:var(--accent-green-dim);color:var(--accent-green)}.c11{background:var(--accent-cyan-dim);color:var(--accent-cyan)}.cext{background:var(--accent-amber-dim);color:var(--accent-amber)}.cself{background:var(--accent-violet-dim);color:var(--accent-violet)}
+  .legend{display:flex;flex-wrap:wrap;gap:20px;padding:16px 24px;background:var(--surface2);border-radius:10px;margin-bottom:24px;border:1px solid var(--border)}.legend-item{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim)}.legend-swatch{width:14px;height:14px;border-radius:4px;border:2px solid}.legend-line{width:28px;height:3px;border-radius:2px}
+  .stats-bar{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:16px;margin-bottom:36px}.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;text-align:center}
+  .stat-number{font-family:'Fraunces',serif;font-size:30px;font-weight:900}
+  .sn-lime{color:var(--accent-lime)}.sn-blue{color:var(--accent-blue)}.sn-amber{color:var(--accent-amber)}.sn-violet{color:var(--accent-violet)}.sn-cyan{color:var(--accent-cyan)}.sn-teal{color:var(--accent-teal)}.sn-rose{color:var(--accent-rose)}
+  .stat-label{font-size:10px;color:var(--text-muted);margin-top:4px;font-family:'JetBrains Mono',monospace;letter-spacing:.5px}
+  @media(max-width:768px){.header,.tabs,.tab-content{padding-left:20px;padding-right:20px}.header h1{font-size:26px}.schema-grid{grid-template-columns:1fr}.tab{padding:14px 12px;font-size:11px}}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="header-tag">Module 5 · PostgreSQL + PostGIS</div>
+  <h1>Daily Activity Monitoring<br>Database Design</h1>
+  <p>All plantation operations beyond tapping — field maintenance, manuring, spraying, nursery work, replanting, factory processing, inspections — with GPS route tracking, material consumption, photo evidence, AI anomaly detection, and supervisor verification.</p>
+  <span class="dep">M1: Field Records</span><span class="dep">M3: Tapping Tasks</span><span class="dep">M4: Workforce</span>
+</div>
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('er')">ER Diagram</div>
+  <div class="tab" onclick="switchTab('schema')">Table Schema</div>
+  <div class="tab" onclick="switchTab('relations')">Relationships</div>
+  <div class="tab" onclick="switchTab('flow')">Activity Workflow</div>
+</div>
+
+<div class="tab-content active" id="tab-er">
+  <div class="stats-bar">
+    <div class="stat-card"><div class="stat-number sn-lime">4</div><div class="stat-label">Core Tables</div></div>
+    <div class="stat-card"><div class="stat-number sn-amber">1</div><div class="stat-label">Material Table</div></div>
+    <div class="stat-card"><div class="stat-number sn-cyan">1</div><div class="stat-label">Evidence Table</div></div>
+    <div class="stat-card"><div class="stat-number sn-violet">2</div><div class="stat-label">Inspection Tables</div></div>
+    <div class="stat-card"><div class="stat-number sn-teal">1</div><div class="stat-label">Analytics Table</div></div>
+    <div class="stat-card"><div class="stat-number sn-blue">5</div><div class="stat-label">Lookups + Master</div></div>
+    <div class="stat-card"><div class="stat-number sn-rose">6</div><div class="stat-label">Smart Triggers</div></div>
+  </div>
+  <div class="legend">
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--accent-lime-dim);border-color:var(--accent-lime)"></div>Core</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--accent-amber-dim);border-color:var(--accent-amber)"></div>Material / Cross-Module</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--accent-cyan-dim);border-color:var(--accent-cyan)"></div>Evidence</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--accent-violet-dim);border-color:var(--accent-violet)"></div>Inspection</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--accent-teal-dim);border-color:var(--accent-teal)"></div>Analytics</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--accent-blue-dim);border-color:var(--accent-blue)"></div>Lookup</div>
+  </div>
+  <div class="er-container" id="erDiagram"></div>
+</div>
+
+<div class="tab-content" id="tab-schema"><div class="section-title">Table Definitions</div><div class="section-subtitle">All tables in the Daily Activity Monitoring module organized by domain.</div><div class="schema-grid" id="schemaGrid"></div></div>
+
+<div class="tab-content" id="tab-relations"><div class="section-title">Relationships & Cardinality</div><div class="section-subtitle">All foreign keys — internal and cross-module to M1, M3, and M4.</div><div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;"><table class="rel-table" id="relTable"></table></div></div>
+
+<div class="tab-content" id="tab-flow"><div class="section-title">Daily Activity Workflow</div><div class="section-subtitle">End-to-end daily operations flow — from planning through execution, evidence capture, inspection, and AI-powered end-of-day summary.</div><div class="flow-container" id="flowDiagram"></div></div>
+
+<script>
+function switchTab(id){const t=['er','schema','relations','flow'];document.querySelectorAll('.tab').forEach((e,i)=>e.classList.toggle('active',t[i]===id));document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));document.getElementById('tab-'+id).classList.add('active')}
+
+const tables=[
+  {name:'daily_work_plan',badge:'Core',bc:'badge-core',columns:[{i:'PK',c:'pk',n:'plan_id',t:'SERIAL'},{i:'FK',c:'fk',n:'plantation_id',t:'INT → M1'},{i:'FK',c:'fk',n:'division_id',t:'INT → M1'},{i:'FK',c:'fk',n:'planned_by',t:'INT → M4'},{i:'·',c:'col',n:'plan_date',t:'DATE'},{i:'·',c:'col',n:'status',t:'VARCHAR(20)'},{i:'·',c:'col',n:'weather_forecast',t:'VARCHAR(200)'},{i:'·',c:'col',n:'total_activities planned/done',t:'INT'},{i:'·',c:'col',n:'completion_rate_pct',t:'NUMERIC(5,2)'},{i:'·',c:'col',n:'ai_suggested_priorities',t:'TEXT'}]},
+  {name:'daily_activity',badge:'Core',bc:'badge-core',columns:[{i:'PK',c:'pk',n:'activity_id',t:'BIGSERIAL'},{i:'FK',c:'fk',n:'plan_id',t:'INT'},{i:'FK',c:'fk',n:'plantation_id / field_id',t:'INT → M1'},{i:'FK',c:'fk',n:'nursery_id',t:'INT → M1'},{i:'FK',c:'fk',n:'activity_type_code',t:'VARCHAR(40)'},{i:'FK',c:'fk',n:'category_code',t:'VARCHAR(30)'},{i:'FK',c:'fk',n:'assigned_worker_id',t:'INT → M4'},{i:'FK',c:'fk',n:'assigned_gang_id',t:'INT → M4'},{i:'FK',c:'fk',n:'priority_code / status',t:'VARCHAR'},{i:'FK',c:'fk',n:'supervisor_id',t:'INT → M4'},{i:'·',c:'col',n:'activity_date',t:'DATE'},{i:'·',c:'col',n:'actual_start / end_time',t:'TIMESTAMPTZ'},{i:'·',c:'col',n:'target / actual_quantity',t:'NUMERIC(12,2)'},{i:'·',c:'col',n:'completion_pct (auto)',t:'NUMERIC(5,2)'},{i:'·',c:'col',n:'man_days (auto)',t:'NUMERIC(6,2)'},{i:'·',c:'col',n:'gps_route',t:'GEOMETRY(LineStr)'},{i:'·',c:'col',n:'ai_anomaly_flag',t:'BOOLEAN'},{i:'·',c:'col',n:'ai_efficiency_score',t:'NUMERIC(5,2)'},{i:'·',c:'col',n:'tapping_task_id',t:'BIGINT → M3'}]},
+  {name:'activity_worker_assignment',badge:'Core',bc:'badge-core',columns:[{i:'PK',c:'pk',n:'assignment_id',t:'BIGSERIAL'},{i:'FK',c:'fk',n:'activity_id',t:'BIGINT'},{i:'FK',c:'fk',n:'worker_id',t:'INT → M4'},{i:'·',c:'col',n:'role_in_activity',t:'VARCHAR(30)'},{i:'·',c:'col',n:'check_in / check_out',t:'TIMESTAMPTZ'},{i:'·',c:'col',n:'hours_worked',t:'NUMERIC(4,2)'},{i:'·',c:'col',n:'individual_quantity',t:'NUMERIC(10,2)'}]},
+  {name:'activity_material_usage',badge:'Material',bc:'badge-material',columns:[{i:'PK',c:'pk',n:'usage_id',t:'BIGSERIAL'},{i:'FK',c:'fk',n:'activity_id',t:'BIGINT'},{i:'FK',c:'fk',n:'material_id',t:'INT'},{i:'·',c:'col',n:'planned / actual_qty',t:'NUMERIC(10,3)'},{i:'·',c:'col',n:'total_cost (auto)',t:'NUMERIC(12,2)'},{i:'·',c:'col',n:'variance_pct (auto)',t:'NUMERIC(6,2)'},{i:'·',c:'col',n:'batch_number',t:'VARCHAR(50)'},{i:'·',c:'col',n:'application_rate',t:'VARCHAR(50)'}]},
+  {name:'activity_photo_evidence',badge:'Evidence',bc:'badge-evidence',columns:[{i:'PK',c:'pk',n:'photo_id',t:'BIGSERIAL'},{i:'FK',c:'fk',n:'activity_id',t:'BIGINT'},{i:'FK',c:'fk',n:'captured_by',t:'INT → M4'},{i:'·',c:'col',n:'photo_url / thumbnail',t:'VARCHAR(1000)'},{i:'·',c:'col',n:'photo_type',t:'VARCHAR(30)'},{i:'·',c:'col',n:'gps_point',t:'GEOMETRY(Point)'},{i:'·',c:'col',n:'ai_analysis_result',t:'JSONB'},{i:'·',c:'col',n:'ai_flagged_issues',t:'TEXT[]'}]},
+  {name:'supervisor_inspection',badge:'Inspection',bc:'badge-inspect',columns:[{i:'PK',c:'pk',n:'inspection_id',t:'SERIAL'},{i:'FK',c:'fk',n:'plantation_id / field_id',t:'INT → M1'},{i:'FK',c:'fk',n:'activity_id',t:'BIGINT'},{i:'FK',c:'fk',n:'inspector_id',t:'INT → M4'},{i:'·',c:'col',n:'inspection_date / type',t:'DATE / VARCHAR'},{i:'·',c:'col',n:'overall_rating',t:'INT (1-5)'},{i:'·',c:'col',n:'ar_assisted / ar_device',t:'BOOLEAN / VARCHAR'},{i:'·',c:'col',n:'ai_summary',t:'TEXT'},{i:'·',c:'col',n:'gps_point',t:'GEOMETRY(Point)'}]},
+  {name:'inspection_checklist_response',badge:'Inspection',bc:'badge-inspect',columns:[{i:'PK',c:'pk',n:'response_id',t:'SERIAL'},{i:'FK',c:'fk',n:'inspection_id',t:'INT'},{i:'FK',c:'fk',n:'item_code',t:'VARCHAR(30)'},{i:'·',c:'col',n:'yes_no / rating / numeric / text',t:'mixed types'}]},
+  {name:'daily_activity_summary',badge:'Analytics',bc:'badge-analytics',columns:[{i:'PK',c:'pk',n:'summary_id',t:'SERIAL'},{i:'FK',c:'fk',n:'plantation_id',t:'INT → M1'},{i:'·',c:'col',n:'summary_date',t:'DATE'},{i:'·',c:'col',n:'total planned/completed/cancelled',t:'INT'},{i:'·',c:'col',n:'total_man_days',t:'NUMERIC(8,2)'},{i:'·',c:'col',n:'area by category',t:'NUMERIC(10,2)'},{i:'·',c:'col',n:'total_material_cost',t:'NUMERIC(12,2)'},{i:'·',c:'col',n:'ai_daily_summary',t:'TEXT'},{i:'·',c:'col',n:'ai_recommendations',t:'TEXT'}]},
+  {name:'material_master',badge:'Lookup',bc:'badge-lookup',columns:[{i:'PK',c:'pk',n:'material_id',t:'SERIAL'},{i:'·',c:'col',n:'material_code',t:'VARCHAR(30) UQ'},{i:'·',c:'col',n:'material_name / category',t:'VARCHAR'},{i:'·',c:'col',n:'default_unit',t:'VARCHAR(20)'},{i:'·',c:'col',n:'unit_cost',t:'NUMERIC(12,2)'},{i:'·',c:'col',n:'is_hazardous',t:'BOOLEAN'}]},
+  {name:'lu_activity_category',badge:'Lookup',bc:'badge-lookup',columns:[{i:'PK',c:'pk',n:'category_code',t:'VARCHAR(30)'},{i:'·',c:'col',n:'category_name',t:'VARCHAR(100)'}]},
+  {name:'lu_activity_type',badge:'Lookup',bc:'badge-lookup',columns:[{i:'PK',c:'pk',n:'activity_type_code',t:'VARCHAR(40)'},{i:'FK',c:'fk',n:'category_code',t:'VARCHAR(30)'},{i:'·',c:'col',n:'activity_type_name',t:'VARCHAR(200)'},{i:'·',c:'col',n:'requires_field / materials',t:'BOOLEAN'},{i:'·',c:'col',n:'unit_of_measure',t:'VARCHAR(30)'}]},
+  {name:'lu_activity_status',badge:'Lookup',bc:'badge-lookup',columns:[{i:'PK',c:'pk',n:'status_code',t:'VARCHAR(20)'},{i:'·',c:'col',n:'status_name',t:'VARCHAR(100)'},{i:'·',c:'col',n:'is_terminal',t:'BOOLEAN'}]},
+  {name:'lu_activity_priority',badge:'Lookup',bc:'badge-lookup',columns:[{i:'PK',c:'pk',n:'priority_code',t:'VARCHAR(10)'},{i:'·',c:'col',n:'priority_name / level',t:'VARCHAR / INT'},{i:'·',c:'col',n:'color_hex',t:'VARCHAR(7)'}]},
+  {name:'lu_inspection_checklist_item',badge:'Lookup',bc:'badge-lookup',columns:[{i:'PK',c:'pk',n:'item_code',t:'VARCHAR(30)'},{i:'FK',c:'fk',n:'category_code',t:'VARCHAR(30)'},{i:'·',c:'col',n:'item_name',t:'VARCHAR(200)'},{i:'·',c:'col',n:'check_type',t:'VARCHAR(20)'}]},
+];
+const sg=document.getElementById('schemaGrid');tables.forEach(t=>{const cols=t.columns.map(c=>`<div class="col-row"><span class="col-icon ${c.c}">${c.i}</span><span class="col-name">${c.n}</span><span class="col-type">${c.t}</span></div>`).join('');sg.innerHTML+=`<div class="schema-card"><div class="schema-card-header"><span class="schema-card-title">${t.name}</span><span class="schema-card-badge ${t.bc}">${t.badge}</span></div><div class="schema-card-body">${cols}</div></div>`});
+
+const rels=[
+  {f:'daily_work_plan',t:'daily_activity',fk:'plan_id',card:'1:M',cls:'c1m',d:'Plan contains activities'},
+  {f:'daily_activity',t:'activity_worker_assignment',fk:'activity_id',card:'1:M',cls:'c1m',d:'Multi-worker tracking'},
+  {f:'daily_activity',t:'activity_material_usage',fk:'activity_id',card:'1:M',cls:'c1m',d:'Materials consumed'},
+  {f:'daily_activity',t:'activity_photo_evidence',fk:'activity_id',card:'1:M',cls:'c1m',d:'Photo evidence'},
+  {f:'daily_activity',t:'supervisor_inspection',fk:'activity_id',card:'1:M',cls:'c1m',d:'Linked inspections'},
+  {f:'supervisor_inspection',t:'inspection_checklist_response',fk:'inspection_id',card:'1:M',cls:'c1m',d:'Checklist items'},
+  {f:'material_master',t:'activity_material_usage',fk:'material_id',card:'1:M',cls:'c1m',d:'Material catalog'},
+  {f:'lu_activity_category',t:'daily_activity',fk:'category_code',card:'1:M',cls:'c1m',d:'Activity category'},
+  {f:'lu_activity_category',t:'lu_activity_type',fk:'category_code',card:'1:M',cls:'c1m',d:'Types within category'},
+  {f:'lu_activity_type',t:'daily_activity',fk:'activity_type_code',card:'1:M',cls:'c1m',d:'Specific activity type'},
+  {f:'lu_activity_status',t:'daily_activity',fk:'status',card:'1:M',cls:'c1m',d:'Activity status'},
+  {f:'lu_activity_priority',t:'daily_activity',fk:'priority_code',card:'1:M',cls:'c1m',d:'Priority level'},
+  {f:'lu_inspection_checklist_item',t:'inspection_checklist_response',fk:'item_code',card:'1:M',cls:'c1m',d:'Checklist item reference'},
+  {f:'lu_activity_category',t:'lu_inspection_checklist_item',fk:'category_code',card:'1:M',cls:'c1m',d:'Checklist per category'},
+  // Cross-module
+  {f:'plantation (M1)',t:'daily_work_plan',fk:'plantation_id',card:'1:M',cls:'cext',d:'Plans per plantation'},
+  {f:'plantation (M1)',t:'daily_activity',fk:'plantation_id',card:'1:M',cls:'cext',d:'Activities per plantation'},
+  {f:'field (M1)',t:'daily_activity',fk:'field_id',card:'1:M',cls:'cext',d:'Activities per field'},
+  {f:'nursery (M1)',t:'daily_activity',fk:'nursery_id',card:'1:M',cls:'cext',d:'Nursery activities'},
+  {f:'plantation (M1)',t:'supervisor_inspection',fk:'plantation_id',card:'1:M',cls:'cext',d:'Inspections per plantation'},
+  {f:'plantation (M1)',t:'daily_activity_summary',fk:'plantation_id',card:'1:M',cls:'cext',d:'Daily summaries'},
+  {f:'worker (M4)',t:'daily_work_plan',fk:'planned_by',card:'1:M',cls:'cext',d:'Planner'},
+  {f:'worker (M4)',t:'daily_activity',fk:'assigned_worker_id',card:'1:M',cls:'cext',d:'Activity worker'},
+  {f:'worker (M4)',t:'daily_activity',fk:'supervisor_id',card:'1:M',cls:'cext',d:'Activity supervisor'},
+  {f:'gang (M4)',t:'daily_activity',fk:'assigned_gang_id',card:'1:M',cls:'cext',d:'Gang assignment'},
+  {f:'worker (M4)',t:'activity_worker_assignment',fk:'worker_id',card:'1:M',cls:'cext',d:'Individual worker track'},
+  {f:'worker (M4)',t:'activity_photo_evidence',fk:'captured_by',card:'1:M',cls:'cext',d:'Photo taker'},
+  {f:'worker (M4)',t:'supervisor_inspection',fk:'inspector_id',card:'1:M',cls:'cext',d:'Inspector'},
+  {f:'tapping_task (M3)',t:'daily_activity',fk:'tapping_task_id',card:'1:1',cls:'cext',d:'Cross-ref to tapping'},
+];
+const rt=document.getElementById('relTable');rt.innerHTML=`<thead><tr><th>From</th><th>To</th><th>FK</th><th>Card.</th><th>Description</th></tr></thead><tbody>${rels.map(r=>`<tr><td class="mono">${r.f}</td><td class="mono">${r.t}</td><td class="mono">${r.fk}</td><td><span class="cb ${r.cls}">${r.card}</span></td><td style="color:var(--text-dim)">${r.d}</td></tr>`).join('')}</tbody>`;
+
+// ER DIAGRAM
+function renderER(){const W=1300,H=680;const E={plantation:{x:30,y:12,w:130,h:36,color:'#fbbf24',bg:'rgba(251,191,36,.05)',label:'plantation',s:'M1'},field:{x:185,y:12,w:100,h:36,color:'#fbbf24',bg:'rgba(251,191,36,.05)',label:'field',s:'M1'},nursery:{x:310,y:12,w:110,h:36,color:'#fbbf24',bg:'rgba(251,191,36,.05)',label:'nursery',s:'M1'},worker:{x:445,y:12,w:110,h:36,color:'#fbbf24',bg:'rgba(251,191,36,.05)',label:'worker',s:'M4'},gang:{x:580,y:12,w:100,h:36,color:'#fbbf24',bg:'rgba(251,191,36,.05)',label:'gang',s:'M4'},tap_task:{x:705,y:12,w:140,h:36,color:'#fbbf24',bg:'rgba(251,191,36,.05)',label:'tapping_task',s:'M3'},
+  plan:{x:60,y:120,w:180,h:52,color:'#a3e635',bg:'rgba(163,230,53,.06)',label:'daily_work_plan',s:'Daily container'},
+  activity:{x:340,y:120,w:210,h:66,color:'#a3e635',bg:'rgba(163,230,53,.06)',label:'daily_activity',s:'Core Activity Record'},
+  worker_assign:{x:60,y:260,w:220,h:46,color:'#a3e635',bg:'rgba(163,230,53,.06)',label:'activity_worker_assignment',s:'Multi-worker'},
+  material:{x:60,y:370,w:210,h:46,color:'#fbbf24',bg:'rgba(251,191,36,.06)',label:'activity_material_usage',s:'Consumption + cost'},
+  photo:{x:660,y:120,w:210,h:50,color:'#22d3ee',bg:'rgba(34,211,238,.06)',label:'activity_photo_evidence',s:'AI-analyzed photos'},
+  inspection:{x:340,y:300,w:210,h:52,color:'#a78bfa',bg:'rgba(167,139,250,.06)',label:'supervisor_inspection',s:'AR-assisted checks'},
+  checklist:{x:340,y:420,w:230,h:46,color:'#a78bfa',bg:'rgba(167,139,250,.06)',label:'inspection_checklist_response',s:'Scored items'},
+  summary:{x:660,y:300,w:210,h:50,color:'#2dd4bf',bg:'rgba(45,212,191,.06)',label:'daily_activity_summary',s:'End-of-day rollup + AI'},
+  mat_master:{x:60,y:480,w:180,h:40,color:'#60a5fa',bg:'rgba(96,165,250,.05)',label:'material_master',s:''},
+  lu_cat:{x:960,y:80,w:170,h:34,color:'#60a5fa',bg:'rgba(96,165,250,.05)',label:'lu_activity_category',s:''},
+  lu_type:{x:960,y:140,w:160,h:34,color:'#60a5fa',bg:'rgba(96,165,250,.05)',label:'lu_activity_type',s:''},
+  lu_stat:{x:960,y:200,w:160,h:34,color:'#60a5fa',bg:'rgba(96,165,250,.05)',label:'lu_activity_status',s:''},
+  lu_pri:{x:960,y:260,w:170,h:34,color:'#60a5fa',bg:'rgba(96,165,250,.05)',label:'lu_activity_priority',s:''},
+  lu_chk:{x:960,y:330,w:210,h:34,color:'#60a5fa',bg:'rgba(96,165,250,.05)',label:'lu_inspection_checklist_item',s:''},
+  };
+  function anc(e,s){switch(s){case'top':return{x:e.x+e.w/2,y:e.y};case'bottom':return{x:e.x+e.w/2,y:e.y+e.h};case'left':return{x:e.x,y:e.y+e.h/2};case'right':return{x:e.x+e.w,y:e.y+e.h/2}}}
+  const C=[['plantation','bottom','plan','top','#fbbf24',true],['plantation','bottom','activity','top','#fbbf24',true],['field','bottom','activity','top','#fbbf24',true],['nursery','bottom','activity','top','#fbbf24',true],['worker','bottom','activity','top','#fbbf24',true],['gang','bottom','activity','top','#fbbf24',true],['tap_task','bottom','activity','top','#fbbf24',true],
+  ['plan','right','activity','left','#a3e635',false],['activity','left','worker_assign','top','#a3e635',false],['activity','left','material','top','#a3e635',false],['activity','right','photo','left','#22d3ee',false],['activity','bottom','inspection','top','#a78bfa',false],['inspection','bottom','checklist','top','#a78bfa',false],['activity','right','summary','left','#2dd4bf',false],
+  ['mat_master','top','material','bottom','#60a5fa',true],['lu_cat','left','activity','right','#60a5fa',true],['lu_type','left','activity','right','#60a5fa',true],['lu_stat','left','activity','right','#60a5fa',true],['lu_pri','left','activity','right','#60a5fa',true],['lu_chk','left','checklist','right','#60a5fa',true]];
+  let svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}"><defs><marker id="ag" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#a3e635" opacity=".7"/></marker><marker id="ab" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#60a5fa" opacity=".7"/></marker><marker id="aa" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#fbbf24" opacity=".7"/></marker><marker id="ac" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#22d3ee" opacity=".7"/></marker><marker id="av" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#a78bfa" opacity=".7"/></marker><marker id="at" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#2dd4bf" opacity=".7"/></marker></defs>
+  <rect x="15" y="3" width="845" height="48" rx="8" fill="#fbbf24" fill-opacity=".03" stroke="#fbbf24" stroke-width="1" stroke-dasharray="6,4" opacity=".3"/><text x="870" y="32" fill="#fbbf24" font-family="JetBrains Mono,monospace" font-size="10" opacity=".5">M1 / M3 / M4</text>`;
+  C.forEach(([fk,fs,tk,ts,color,dashed])=>{const a=anc(E[fk],fs),b=anc(E[tk],ts);const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;let p;
+  if(fs==='bottom'&&ts==='top')p=`M${a.x},${a.y} C${a.x},${my} ${b.x},${my} ${b.x},${b.y}`;else if(fs==='right'&&ts==='left')p=`M${a.x},${a.y} C${mx},${a.y} ${mx},${b.y} ${b.x},${b.y}`;else if(fs==='left'&&ts==='top')p=`M${a.x},${a.y} C${a.x-40},${a.y} ${b.x},${a.y} ${b.x},${b.y}`;else if(fs==='top'&&ts==='bottom')p=`M${a.x},${a.y} C${a.x},${my} ${b.x},${my} ${b.x},${b.y}`;else p=`M${a.x},${a.y} C${mx},${a.y} ${mx},${b.y} ${b.x},${b.y}`;
+  const mc=color==='#a3e635'?'g':color==='#60a5fa'?'b':color==='#fbbf24'?'a':color==='#22d3ee'?'c':color==='#a78bfa'?'v':'t';
+  svg+=`<path d="${p}" fill="none" stroke="${color}" stroke-width="1.3" opacity=".4" ${dashed?'stroke-dasharray="5,4"':''} marker-end="url(#a${mc})"/>`});
+  Object.values(E).forEach(e=>{const isM=['M1','M3','M4'].includes(e.s);svg+=`<rect x="${e.x}" y="${e.y}" width="${e.w}" height="${e.h}" rx="8" fill="${e.bg}" stroke="${e.color}" stroke-width="${isM?'1':'1.5'}" ${isM?'stroke-dasharray="4,3"':''}/>`;svg+=`<text x="${e.x+e.w/2}" y="${e.y+(e.h>50?24:17)}" text-anchor="middle" fill="${e.color}" font-family="JetBrains Mono,monospace" font-size="${e.h>50?'11':'10.5'}" font-weight="600">${e.label}</text>`;if(e.s&&!isM)svg+=`<text x="${e.x+e.w/2}" y="${e.y+(e.h>50?42:32)}" text-anchor="middle" fill="#8890a6" font-family="DM Sans,sans-serif" font-size="9">${e.s}</text>`});
+  svg+=`</svg>`;document.getElementById('erDiagram').innerHTML=svg}
+
+function renderFlow(){const W=1200,H=620;let svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}"><defs><marker id="fg" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#a3e635" opacity=".8"/></marker></defs>`;
+  const lanes=[{x:25,w:185,label:'PLANNING',color:'#22d3ee'},{x:225,w:185,label:'ASSIGNMENT',color:'#fbbf24'},{x:425,w:195,label:'EXECUTION',color:'#a3e635'},{x:635,w:185,label:'EVIDENCE & QC',color:'#a78bfa'},{x:835,w:190,label:'CLOSE & ANALYTICS',color:'#2dd4bf'}];
+  lanes.forEach(l=>{svg+=`<rect x="${l.x}" y="50" width="${l.w}" height="530" rx="12" fill="${l.color}" fill-opacity=".03" stroke="${l.color}" stroke-width="1" opacity=".2"/>`;svg+=`<text x="${l.x+l.w/2}" y="36" text-anchor="middle" fill="${l.color}" font-family="JetBrains Mono,monospace" font-size="10" font-weight="600" letter-spacing="1.5" opacity=".7">${l.label}</text>`});
+  const B=[
+    {x:40,y:80,w:155,h:48,l:'Create Day Plan',s:'daily_work_plan',c:'#22d3ee'},{x:40,y:165,w:155,h:48,l:'Add Activities',s:'daily_activity (PLANNED)',c:'#22d3ee'},{x:40,y:250,w:155,h:48,l:'AI Priorities',s:'ai_suggested_priorities',c:'#22d3ee'},{x:40,y:340,w:155,h:44,l:'Check Weather',s:'suitable_for_field_work',c:'#22d3ee'},
+    {x:240,y:80,w:155,h:48,l:'Assign Workers',s:'worker_id / gang_id',c:'#fbbf24'},{x:240,y:165,w:155,h:48,l:'Set Priority',s:'CRITICAL → ROUTINE',c:'#fbbf24'},{x:240,y:250,w:155,h:48,l:'Allocate Materials',s:'planned_quantity',c:'#fbbf24'},{x:240,y:340,w:155,h:44,l:'Publish Plan',s:'status → PUBLISHED',c:'#fbbf24'},
+    {x:440,y:80,w:170,h:48,l:'Start Activity',s:'actual_start + GPS',c:'#a3e635'},{x:440,y:165,w:170,h:48,l:'Track Progress',s:'GPS route + quantity',c:'#a3e635'},{x:440,y:250,w:170,h:48,l:'Record Materials',s:'material_usage + cost',c:'#a3e635'},{x:440,y:340,w:170,h:48,l:'Multi-Worker Log',s:'worker_assignment',c:'#a3e635'},{x:440,y:430,w:170,h:44,l:'Complete Activity',s:'status → COMPLETED',c:'#a3e635'},
+    {x:650,y:80,w:155,h:48,l:'Capture Photos',s:'before / during / after',c:'#a78bfa'},{x:650,y:165,w:155,h:48,l:'AI Photo Analysis',s:'JSONB analysis_result',c:'#a78bfa'},{x:650,y:250,w:155,h:48,l:'Supervisor Check',s:'supervisor_inspection',c:'#a78bfa'},{x:650,y:340,w:155,h:48,l:'Score Checklist',s:'yes_no / rating_1_5',c:'#a78bfa'},{x:650,y:430,w:155,h:44,l:'AR Inspection',s:'ar_assisted = TRUE',c:'#a78bfa'},
+    {x:850,y:80,w:160,h:48,l:'Auto-Calc Metrics',s:'completion / man_days',c:'#2dd4bf'},{x:850,y:165,w:160,h:48,l:'Flag Anomalies',s:'ai_anomaly_flag',c:'#2dd4bf'},{x:850,y:250,w:160,h:48,l:'Day Summary',s:'daily_activity_summary',c:'#2dd4bf'},{x:850,y:340,w:160,h:48,l:'AI Daily Narrative',s:'ai_daily_summary',c:'#2dd4bf'},{x:850,y:430,w:160,h:44,l:'Next Day Recs',s:'ai_recommendations',c:'#2dd4bf'},
+  ];
+  B.forEach(b=>{svg+=`<rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="8" fill="${b.c}" fill-opacity=".08" stroke="${b.c}" stroke-width="1.2"/>`;svg+=`<text x="${b.x+b.w/2}" y="${b.y+19}" text-anchor="middle" fill="${b.c}" font-family="JetBrains Mono,monospace" font-size="10" font-weight="600">${b.l}</text>`;if(b.s)svg+=`<text x="${b.x+b.w/2}" y="${b.y+33}" text-anchor="middle" fill="#8890a6" font-family="DM Sans,sans-serif" font-size="9">${b.s}</text>`});
+  [[117,128,117,165],[117,213,117,250],[117,298,117,340],[317,128,317,165],[317,213,317,250],[317,298,317,340],[525,128,525,165],[525,213,525,250],[525,298,525,340],[525,388,525,430],[727,128,727,165],[727,213,727,250],[727,298,727,340],[727,388,727,430],[930,128,930,165],[930,213,930,250],[930,298,930,340],[930,388,930,430]].forEach(a=>svg+=`<line x1="${a[0]}" y1="${a[1]}" x2="${a[2]}" y2="${a[3]}" stroke="#a3e635" stroke-width="1.2" opacity=".35" marker-end="url(#fg)"/>`);
+  [[195,104,240,104],[395,104,440,104],[610,104,650,104],[805,104,850,104],[395,189,440,189],[610,274,650,274]].forEach(a=>svg+=`<line x1="${a[0]}" y1="${a[1]}" x2="${a[2]}" y2="${a[3]}" stroke="#a3e635" stroke-width="1.2" opacity=".35" marker-end="url(#fg)"/>`);
+  svg+=`</svg>`;document.getElementById('flowDiagram').innerHTML=svg}
+renderER();renderFlow();
+</script>
+</body>
+</html>

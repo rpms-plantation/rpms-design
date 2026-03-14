@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Attendance Management — Database Design</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,500;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;600&family=Fraunces:opsz,wght@9..144,700;9..144,900&display=swap');
+  :root{--bg:#0f1117;--surface:#181b24;--surface2:#1e2230;--border:#2a2f3e;--border-glow:#3d4663;--text:#e1e4ed;--text-dim:#8890a6;--text-muted:#5c6380;--accent-green:#4ade80;--accent-green-dim:rgba(74,222,128,.12);--accent-blue:#60a5fa;--accent-blue-dim:rgba(96,165,250,.10);--accent-amber:#fbbf24;--accent-amber-dim:rgba(251,191,36,.10);--accent-rose:#fb7185;--accent-rose-dim:rgba(251,113,133,.10);--accent-violet:#a78bfa;--accent-violet-dim:rgba(167,139,250,.10);--accent-cyan:#22d3ee;--accent-cyan-dim:rgba(34,211,238,.10);--accent-teal:#2dd4bf;--accent-teal-dim:rgba(45,212,191,.10);--accent-red:#ef4444;--accent-red-dim:rgba(239,68,68,.10);--accent-sky:#38bdf8;--accent-sky-dim:rgba(56,189,248,.10)}
+  *{margin:0;padding:0;box-sizing:border-box}body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min-height:100vh;overflow-x:hidden}
+  .header{padding:48px 48px 32px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,rgba(56,189,248,.05) 0%,transparent 100%)}
+  .header-tag{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:2.5px;text-transform:uppercase;color:var(--accent-sky);margin-bottom:12px;display:flex;align-items:center;gap:8px}
+  .header-tag::before{content:'';display:inline-block;width:8px;height:8px;background:var(--accent-sky);border-radius:50%;box-shadow:0 0 8px var(--accent-sky)}
+  .header h1{font-family:'Fraunces',serif;font-weight:900;font-size:36px;line-height:1.15;letter-spacing:-.5px;background:linear-gradient(135deg,#e1e4ed 30%,#38bdf8 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+  .header p{color:var(--text-dim);font-size:15px;margin-top:10px;max-width:740px;line-height:1.6}
+  .header .dep{display:inline-block;margin-top:12px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--accent-amber);background:var(--accent-amber-dim);padding:5px 12px;border-radius:6px;margin-right:8px}
+  .tabs{display:flex;gap:0;padding:0 48px;border-bottom:1px solid var(--border);background:var(--surface);position:sticky;top:0;z-index:100}
+  .tab{padding:16px 24px;font-size:13px;font-weight:500;color:var(--text-muted);cursor:pointer;border-bottom:2px solid transparent;transition:all .2s;user-select:none;font-family:'DM Sans',sans-serif}.tab:hover{color:var(--text-dim)}.tab.active{color:var(--accent-sky);border-bottom-color:var(--accent-sky)}
+  .tab-content{display:none;padding:40px 48px 60px}.tab-content.active{display:block}
+  .section-title{font-family:'Fraunces',serif;font-weight:700;font-size:22px;margin-bottom:6px}.section-subtitle{color:var(--text-dim);font-size:13px;margin-bottom:32px;line-height:1.5}
+  .er-container,.flow-container{width:100%;overflow-x:auto;border:1px solid var(--border);border-radius:12px;background:var(--surface)}.er-container svg,.flow-container svg{display:block}
+  .schema-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(400px,1fr));gap:20px}
+  .schema-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;transition:border-color .3s}.schema-card:hover{border-color:var(--border-glow)}
+  .schema-card-header{padding:16px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)}
+  .schema-card-title{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600}
+  .schema-card-badge{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1px;text-transform:uppercase;padding:4px 10px;border-radius:6px;font-weight:600}
+  .badge-core{background:var(--accent-sky-dim);color:var(--accent-sky)}.badge-lookup{background:var(--accent-blue-dim);color:var(--accent-blue)}.badge-audit{background:var(--accent-amber-dim);color:var(--accent-amber)}.badge-roster{background:var(--accent-green-dim);color:var(--accent-green)}.badge-analytics{background:var(--accent-violet-dim);color:var(--accent-violet)}.badge-correct{background:var(--accent-rose-dim);color:var(--accent-rose)}.badge-location{background:var(--accent-cyan-dim);color:var(--accent-cyan)}
+  .schema-card-body{padding:12px 0;max-height:380px;overflow-y:auto}
+  .col-row{display:grid;grid-template-columns:24px 1fr 135px;align-items:center;padding:5px 20px;font-size:13px;transition:background .15s}.col-row:hover{background:rgba(255,255,255,.02)}
+  .col-icon{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700}.col-icon.pk{color:var(--accent-amber)}.col-icon.fk{color:var(--accent-rose)}.col-icon.col{color:var(--text-muted)}
+  .col-name{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text)}.col-type{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-muted);text-align:right}
+  .rel-table{width:100%;border-collapse:collapse;font-size:13px}.rel-table thead th{text-align:left;padding:12px 16px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid var(--border);background:var(--surface)}.rel-table tbody td{padding:10px 16px;border-bottom:1px solid var(--border);vertical-align:top}.rel-table tbody tr:hover{background:rgba(255,255,255,.015)}
+  .mono{font-family:'JetBrains Mono',monospace;font-size:12px}
+  .cb{display:inline-block;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;padding:3px 10px;border-radius:5px}.c1m{background:var(--accent-green-dim);color:var(--accent-green)}.cext{background:var(--accent-amber-dim);color:var(--accent-amber)}
+  .legend{display:flex;flex-wrap:wrap;gap:20px;padding:16px 24px;background:var(--surface2);border-radius:10px;margin-bottom:24px;border:1px solid var(--border)}.legend-item{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim)}.legend-swatch{width:14px;height:14px;border-radius:4px;border:2px solid}.legend-line{width:28px;height:3px;border-radius:2px}
+  .stats-bar{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:16px;margin-bottom:36px}.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;text-align:center}
+  .stat-number{font-family:'Fraunces',serif;font-size:30px;font-weight:900}
+  .sn-sky{color:var(--accent-sky)}.sn-blue{color:var(--accent-blue)}.sn-amber{color:var(--accent-amber)}.sn-violet{color:var(--accent-violet)}.sn-cyan{color:var(--accent-cyan)}.sn-green{color:var(--accent-green)}.sn-rose{color:var(--accent-rose)}
+  .stat-label{font-size:10px;color:var(--text-muted);margin-top:4px;font-family:'JetBrains Mono',monospace;letter-spacing:.5px}
+  @media(max-width:768px){.header,.tabs,.tab-content{padding-left:20px;padding-right:20px}.header h1{font-size:26px}.schema-grid{grid-template-columns:1fr}.tab{padding:14px 12px;font-size:11px}}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="header-tag">Module 6 · PostgreSQL + PostGIS</div>
+  <h1>Attendance Management<br>Database Design</h1>
+  <p>Multi-method attendance capture (biometric, NFC, GPS geofence, mobile app), shift rostering, overtime tracking, regularization workflow, monthly payroll-ready summaries, absenteeism pattern analysis, and AI-powered anomaly detection.</p>
+  <span class="dep">M1: Field Records</span><span class="dep">M3: IoT Devices</span><span class="dep">M4: Workforce</span><span class="dep">M5: Activities</span>
+</div>
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('er')">ER Diagram</div>
+  <div class="tab" onclick="switchTab('schema')">Table Schema</div>
+  <div class="tab" onclick="switchTab('relations')">Relationships</div>
+  <div class="tab" onclick="switchTab('flow')">Attendance Workflow</div>
+</div>
+
+<div class="tab-content active" id="tab-er">
+  <div class="stats-bar">
+    <div class="stat-card"><div class="stat-number sn-sky">2</div><div class="stat-label">Core Tables</div></div>
+    <div class="stat-card"><div class="stat-number sn-amber">1</div><div class="stat-label">Scan Audit Log</div></div>
+    <div class="stat-card"><div class="stat-number sn-rose">1</div><div class="stat-label">Regularization</div></div>
+    <div class="stat-card"><div class="stat-number sn-green">1</div><div class="stat-label">Shift Roster</div></div>
+    <div class="stat-card"><div class="stat-number sn-cyan">1</div><div class="stat-label">Location Table</div></div>
+    <div class="stat-card"><div class="stat-number sn-violet">2</div><div class="stat-label">Analytics Tables</div></div>
+    <div class="stat-card"><div class="stat-number sn-blue">5</div><div class="stat-label">Lookups</div></div>
+  </div>
+  <div class="legend">
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--accent-sky-dim);border-color:var(--accent-sky)"></div>Core Attendance</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--accent-amber-dim);border-color:var(--accent-amber)"></div>Audit / Cross-Module</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--accent-rose-dim);border-color:var(--accent-rose)"></div>Regularization</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--accent-green-dim);border-color:var(--accent-green)"></div>Roster</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--accent-cyan-dim);border-color:var(--accent-cyan)"></div>Location</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--accent-violet-dim);border-color:var(--accent-violet)"></div>Analytics</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--accent-blue-dim);border-color:var(--accent-blue)"></div>Lookup</div>
+  </div>
+  <div class="er-container" id="erDiagram"></div>
+</div>
+
+<div class="tab-content" id="tab-schema"><div class="section-title">Table Definitions</div><div class="section-subtitle">All 13 tables in the Attendance Management module.</div><div class="schema-grid" id="schemaGrid"></div></div>
+<div class="tab-content" id="tab-relations"><div class="section-title">Relationships & Cardinality</div><div class="section-subtitle">All foreign keys — internal and cross-module to M1, M3, M4, and M5.</div><div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;"><table class="rel-table" id="relTable"></table></div></div>
+<div class="tab-content" id="tab-flow"><div class="section-title">Attendance Workflow</div><div class="section-subtitle">End-to-end daily attendance flow — from roster planning through multi-method check-in, geofence tracking, regularization, and monthly payroll rollup.</div><div class="flow-container" id="flowDiagram"></div></div>
+
+<script>
+function switchTab(id){const t=['er','schema','relations','flow'];document.querySelectorAll('.tab').forEach((e,i)=>e.classList.toggle('active',t[i]===id));document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));document.getElementById('tab-'+id).classList.add('active')}
+const tables=[
+  {name:'daily_attendance',badge:'Core',bc:'badge-core',columns:[{i:'PK',c:'pk',n:'attendance_id',t:'BIGSERIAL'},{i:'FK',c:'fk',n:'worker_id',t:'INT → M4'},{i:'FK',c:'fk',n:'plantation_id',t:'INT → M1'},{i:'FK',c:'fk',n:'shift_code',t:'VARCHAR(20)'},{i:'FK',c:'fk',n:'attendance_status',t:'VARCHAR(20)'},{i:'·',c:'col',n:'attendance_date',t:'DATE'},{i:'·',c:'col',n:'check_in_time / method',t:'TSTZ / VARCHAR'},{i:'FK',c:'fk',n:'check_in_location_id',t:'INT'},{i:'·',c:'col',n:'check_in_gps_point',t:'GEOMETRY(Point)'},{i:'·',c:'col',n:'check_out_time / method',t:'TSTZ / VARCHAR'},{i:'·',c:'col',n:'gross / net_work_hours (auto)',t:'NUMERIC(5,2)'},{i:'·',c:'col',n:'is_late / late_minutes (auto)',t:'BOOL / INT'},{i:'·',c:'col',n:'overtime_hours / type',t:'NUMERIC / VARCHAR'},{i:'FK',c:'fk',n:'leave_id',t:'INT → M4'},{i:'·',c:'col',n:'geofence_verified',t:'BOOLEAN'},{i:'·',c:'col',n:'time_in_field_hours',t:'NUMERIC(5,2)'},{i:'·',c:'col',n:'ai_anomaly_flag / type',t:'BOOL / VARCHAR'},{i:'·',c:'col',n:'blockchain_tx_hash',t:'VARCHAR(128)'}]},
+  {name:'attendance_scan_log',badge:'Audit',bc:'badge-audit',columns:[{i:'PK',c:'pk',n:'scan_id',t:'BIGSERIAL'},{i:'FK',c:'fk',n:'worker_id',t:'INT → M4'},{i:'FK',c:'fk',n:'method_code',t:'VARCHAR(20)'},{i:'FK',c:'fk',n:'location_id',t:'INT'},{i:'·',c:'col',n:'scan_timestamp',t:'TIMESTAMPTZ'},{i:'·',c:'col',n:'scan_type',t:'IN/OUT/FIELD_*'},{i:'·',c:'col',n:'biometric_match_score',t:'NUMERIC(5,2)'},{i:'·',c:'col',n:'nfc_badge_uid',t:'VARCHAR(100)'},{i:'·',c:'col',n:'gps_point / accuracy_m',t:'GEOM / NUMERIC'},{i:'·',c:'col',n:'face_match_score',t:'NUMERIC(5,2)'},{i:'·',c:'col',n:'is_duplicate',t:'BOOLEAN'},{i:'·',c:'col',n:'blockchain_tx_hash',t:'VARCHAR(128)'}]},
+  {name:'attendance_regularization',badge:'Correction',bc:'badge-correct',columns:[{i:'PK',c:'pk',n:'regularization_id',t:'SERIAL'},{i:'FK',c:'fk',n:'attendance_id',t:'BIGINT'},{i:'·',c:'col',n:'original / corrected_status',t:'VARCHAR(20)'},{i:'·',c:'col',n:'original / corrected times',t:'TIMESTAMPTZ'},{i:'FK',c:'fk',n:'reason_code',t:'VARCHAR(30)'},{i:'·',c:'col',n:'justification',t:'TEXT'},{i:'FK',c:'fk',n:'requested_by / approved_by',t:'INT → M4'},{i:'·',c:'col',n:'approval_status',t:'VARCHAR(20)'},{i:'·',c:'col',n:'blockchain_tx_hash',t:'VARCHAR(128)'}]},
+  {name:'attendance_location',badge:'Location',bc:'badge-location',columns:[{i:'PK',c:'pk',n:'location_id',t:'SERIAL'},{i:'FK',c:'fk',n:'plantation_id',t:'INT → M1'},{i:'·',c:'col',n:'location_code / name',t:'VARCHAR'},{i:'·',c:'col',n:'location_type',t:'VARCHAR(30)'},{i:'·',c:'col',n:'has_biometric / nfc / qr',t:'BOOLEAN'},{i:'·',c:'col',n:'geofence_radius_m',t:'NUMERIC(8,2)'},{i:'·',c:'col',n:'geofence_center / polygon',t:'GEOMETRY'}]},
+  {name:'worker_shift_roster',badge:'Roster',bc:'badge-roster',columns:[{i:'PK',c:'pk',n:'roster_id',t:'SERIAL'},{i:'FK',c:'fk',n:'worker_id',t:'INT → M4'},{i:'FK',c:'fk',n:'plantation_id',t:'INT → M1'},{i:'FK',c:'fk',n:'shift_code',t:'VARCHAR(20)'},{i:'·',c:'col',n:'roster_date',t:'DATE'},{i:'·',c:'col',n:'is_rest_day / is_holiday',t:'BOOLEAN'},{i:'FK',c:'fk',n:'assigned_field_id / gang_id',t:'INT → M1/M4'}]},
+  {name:'monthly_attendance_summary',badge:'Analytics',bc:'badge-analytics',columns:[{i:'PK',c:'pk',n:'summary_id',t:'SERIAL'},{i:'FK',c:'fk',n:'worker_id',t:'INT → M4'},{i:'FK',c:'fk',n:'plantation_id',t:'INT → M1'},{i:'·',c:'col',n:'summary_month / year',t:'INT'},{i:'·',c:'col',n:'days_present / late / absent',t:'INT'},{i:'·',c:'col',n:'total_work / overtime_hours',t:'NUMERIC(8,2)'},{i:'·',c:'col',n:'payable_days',t:'NUMERIC(6,1)'},{i:'·',c:'col',n:'attendance_rate_pct',t:'NUMERIC(5,2)'},{i:'·',c:'col',n:'eligible_for_bonus',t:'BOOLEAN'},{i:'·',c:'col',n:'blockchain_tx_hash',t:'VARCHAR(128)'}]},
+  {name:'plantation_daily_attendance',badge:'Analytics',bc:'badge-analytics',columns:[{i:'PK',c:'pk',n:'snapshot_id',t:'SERIAL'},{i:'FK',c:'fk',n:'plantation_id',t:'INT → M1'},{i:'·',c:'col',n:'snapshot_date',t:'DATE'},{i:'·',c:'col',n:'total / present / late / absent',t:'INT'},{i:'·',c:'col',n:'tappers / field / factory present',t:'INT'},{i:'·',c:'col',n:'attendance_rate_pct',t:'NUMERIC(5,2)'},{i:'·',c:'col',n:'ai_pattern_alerts',t:'TEXT'}]},
+  {name:'lu_attendance_status',badge:'Lookup',bc:'badge-lookup',columns:[{i:'PK',c:'pk',n:'status_code',t:'VARCHAR(20)'},{i:'·',c:'col',n:'status_name',t:'VARCHAR(100)'},{i:'·',c:'col',n:'is_present / is_paid',t:'BOOLEAN'},{i:'·',c:'col',n:'affects_bonus',t:'BOOLEAN'},{i:'·',c:'col',n:'display_color',t:'VARCHAR(7)'}]},
+  {name:'lu_checkin_method',badge:'Lookup',bc:'badge-lookup',columns:[{i:'PK',c:'pk',n:'method_code',t:'VARCHAR(20)'},{i:'·',c:'col',n:'method_name',t:'VARCHAR(100)'},{i:'·',c:'col',n:'reliability_score',t:'INT (1-5)'},{i:'·',c:'col',n:'requires_device',t:'BOOLEAN'}]},
+  {name:'lu_shift',badge:'Lookup',bc:'badge-lookup',columns:[{i:'PK',c:'pk',n:'shift_code',t:'VARCHAR(20)'},{i:'·',c:'col',n:'shift_name',t:'VARCHAR(100)'},{i:'·',c:'col',n:'start / end_time',t:'TIME'},{i:'·',c:'col',n:'work_hours / grace_min',t:'NUMERIC / INT'},{i:'·',c:'col',n:'is_night_shift',t:'BOOLEAN'}]},
+  {name:'lu_overtime_type',badge:'Lookup',bc:'badge-lookup',columns:[{i:'PK',c:'pk',n:'overtime_code',t:'VARCHAR(20)'},{i:'·',c:'col',n:'overtime_name',t:'VARCHAR(100)'},{i:'·',c:'col',n:'multiplier',t:'NUMERIC(4,2)'},{i:'·',c:'col',n:'max_hours_per_day',t:'NUMERIC(4,2)'}]},
+  {name:'lu_regularization_reason',badge:'Lookup',bc:'badge-lookup',columns:[{i:'PK',c:'pk',n:'reason_code',t:'VARCHAR(30)'},{i:'·',c:'col',n:'reason_name',t:'VARCHAR(200)'},{i:'·',c:'col',n:'auto_approve',t:'BOOLEAN'}]},
+];
+const sg=document.getElementById('schemaGrid');tables.forEach(t=>{const cols=t.columns.map(c=>`<div class="col-row"><span class="col-icon ${c.c}">${c.i}</span><span class="col-name">${c.n}</span><span class="col-type">${c.t}</span></div>`).join('');sg.innerHTML+=`<div class="schema-card"><div class="schema-card-header"><span class="schema-card-title">${t.name}</span><span class="schema-card-badge ${t.bc}">${t.badge}</span></div><div class="schema-card-body">${cols}</div></div>`});
+
+const rels=[
+  {f:'daily_attendance',t:'attendance_scan_log',fk:'worker_id + date',card:'1:M',cls:'c1m',d:'Raw scans feed daily record'},
+  {f:'daily_attendance',t:'attendance_regularization',fk:'attendance_id',card:'1:M',cls:'c1m',d:'Correction requests'},
+  {f:'attendance_location',t:'daily_attendance',fk:'check_in/out_location_id',card:'1:M',cls:'c1m',d:'Where worker checked in/out'},
+  {f:'attendance_location',t:'attendance_scan_log',fk:'location_id',card:'1:M',cls:'c1m',d:'Scan occurred at location'},
+  {f:'lu_attendance_status',t:'daily_attendance',fk:'attendance_status',card:'1:M',cls:'c1m',d:'Status classification'},
+  {f:'lu_checkin_method',t:'daily_attendance',fk:'check_in/out_method',card:'1:M',cls:'c1m',d:'Method used'},
+  {f:'lu_checkin_method',t:'attendance_scan_log',fk:'method_code',card:'1:M',cls:'c1m',d:'Scan method'},
+  {f:'lu_shift',t:'daily_attendance',fk:'shift_code',card:'1:M',cls:'c1m',d:'Expected shift'},
+  {f:'lu_shift',t:'worker_shift_roster',fk:'shift_code',card:'1:M',cls:'c1m',d:'Rostered shift'},
+  {f:'lu_overtime_type',t:'daily_attendance',fk:'overtime_type_code',card:'1:M',cls:'c1m',d:'Overtime classification'},
+  {f:'lu_regularization_reason',t:'attendance_regularization',fk:'reason_code',card:'1:M',cls:'c1m',d:'Correction reason'},
+  // Cross-module
+  {f:'worker (M4)',t:'daily_attendance',fk:'worker_id',card:'1:M',cls:'cext',d:'Attendance per worker'},
+  {f:'worker (M4)',t:'attendance_scan_log',fk:'worker_id',card:'1:M',cls:'cext',d:'Scans per worker'},
+  {f:'worker (M4)',t:'worker_shift_roster',fk:'worker_id',card:'1:M',cls:'cext',d:'Roster per worker'},
+  {f:'worker (M4)',t:'monthly_attendance_summary',fk:'worker_id',card:'1:M',cls:'cext',d:'Monthly summary'},
+  {f:'worker (M4)',t:'attendance_regularization',fk:'requested/approved_by',card:'1:M',cls:'cext',d:'Requester / Approver'},
+  {f:'worker (M4)',t:'daily_attendance',fk:'overtime_approved_by',card:'1:M',cls:'cext',d:'OT approver'},
+  {f:'worker_leave (M4)',t:'daily_attendance',fk:'leave_id',card:'1:1',cls:'cext',d:'Leave linkage'},
+  {f:'plantation (M1)',t:'daily_attendance',fk:'plantation_id',card:'1:M',cls:'cext',d:'Attendance per plantation'},
+  {f:'plantation (M1)',t:'attendance_location',fk:'plantation_id',card:'1:M',cls:'cext',d:'Muster points'},
+  {f:'plantation (M1)',t:'monthly_attendance_summary',fk:'plantation_id',card:'1:M',cls:'cext',d:'Monthly per plantation'},
+  {f:'plantation (M1)',t:'plantation_daily_attendance',fk:'plantation_id',card:'1:M',cls:'cext',d:'Daily snapshot'},
+  {f:'field (M1)',t:'worker_shift_roster',fk:'assigned_field_id',card:'1:M',cls:'cext',d:'Rostered field'},
+  {f:'gang (M4)',t:'worker_shift_roster',fk:'assigned_gang_id',card:'1:M',cls:'cext',d:'Rostered gang'},
+  {f:'daily_activity (M5)',t:'daily_attendance',fk:'primary_activity_id',card:'1:1',cls:'cext',d:'Activity link'},
+];
+const rt=document.getElementById('relTable');rt.innerHTML=`<thead><tr><th>From</th><th>To</th><th>FK</th><th>Card.</th><th>Description</th></tr></thead><tbody>${rels.map(r=>`<tr><td class="mono">${r.f}</td><td class="mono">${r.t}</td><td class="mono">${r.fk}</td><td><span class="cb ${r.cls}">${r.card}</span></td><td style="color:var(--text-dim)">${r.d}</td></tr>`).join('')}</tbody>`;
+
+// ER DIAGRAM
+function renderER(){const W=1300,H=680;const E={
+  worker:{x:30,y:12,w:110,h:36,color:'#fbbf24',bg:'rgba(251,191,36,.05)',label:'worker',s:'M4'},
+  plantation:{x:165,y:12,w:130,h:36,color:'#fbbf24',bg:'rgba(251,191,36,.05)',label:'plantation',s:'M1'},
+  field:{x:320,y:12,w:100,h:36,color:'#fbbf24',bg:'rgba(251,191,36,.05)',label:'field',s:'M1'},
+  gang:{x:445,y:12,w:100,h:36,color:'#fbbf24',bg:'rgba(251,191,36,.05)',label:'gang',s:'M4'},
+  leave:{x:570,y:12,w:130,h:36,color:'#fbbf24',bg:'rgba(251,191,36,.05)',label:'worker_leave',s:'M4'},
+  activity:{x:725,y:12,w:140,h:36,color:'#fbbf24',bg:'rgba(251,191,36,.05)',label:'daily_activity',s:'M5'},
+  attendance:{x:280,y:130,w:220,h:66,color:'#38bdf8',bg:'rgba(56,189,248,.06)',label:'daily_attendance',s:'Core Daily Record'},
+  scan_log:{x:60,y:140,w:170,h:50,color:'#fbbf24',bg:'rgba(251,191,36,.06)',label:'attendance_scan_log',s:'Immutable event log'},
+  location:{x:60,y:280,w:190,h:50,color:'#22d3ee',bg:'rgba(34,211,238,.06)',label:'attendance_location',s:'Muster + Geofence'},
+  regularization:{x:580,y:130,w:220,h:50,color:'#fb7185',bg:'rgba(251,113,133,.06)',label:'attendance_regularization',s:'Correction workflow'},
+  roster:{x:580,y:260,w:200,h:50,color:'#4ade80',bg:'rgba(74,222,128,.06)',label:'worker_shift_roster',s:'Pre-assigned shifts'},
+  monthly:{x:280,y:310,w:230,h:50,color:'#a78bfa',bg:'rgba(167,139,250,.06)',label:'monthly_attendance_summary',s:'Payroll-ready rollup'},
+  daily_snap:{x:580,y:370,w:220,h:50,color:'#a78bfa',bg:'rgba(167,139,250,.06)',label:'plantation_daily_attendance',s:'Estate-level snapshot'},
+  lu_stat:{x:960,y:80,w:180,h:34,color:'#60a5fa',bg:'rgba(96,165,250,.05)',label:'lu_attendance_status',s:''},
+  lu_method:{x:960,y:140,w:170,h:34,color:'#60a5fa',bg:'rgba(96,165,250,.05)',label:'lu_checkin_method',s:''},
+  lu_shift:{x:960,y:200,w:130,h:34,color:'#60a5fa',bg:'rgba(96,165,250,.05)',label:'lu_shift',s:''},
+  lu_ot:{x:960,y:260,w:160,h:34,color:'#60a5fa',bg:'rgba(96,165,250,.05)',label:'lu_overtime_type',s:''},
+  lu_reg:{x:960,y:330,w:190,h:34,color:'#60a5fa',bg:'rgba(96,165,250,.05)',label:'lu_regularization_reason',s:''},
+};
+function anc(e,s){switch(s){case'top':return{x:e.x+e.w/2,y:e.y};case'bottom':return{x:e.x+e.w/2,y:e.y+e.h};case'left':return{x:e.x,y:e.y+e.h/2};case'right':return{x:e.x+e.w,y:e.y+e.h/2}}}
+const C=[['worker','bottom','attendance','top','#fbbf24',true],['plantation','bottom','attendance','top','#fbbf24',true],['field','bottom','roster','top','#fbbf24',true],['gang','bottom','roster','top','#fbbf24',true],['leave','bottom','attendance','top','#fbbf24',true],['activity','bottom','attendance','top','#fbbf24',true],
+['scan_log','right','attendance','left','#38bdf8',false],['location','right','attendance','left','#22d3ee',false],['location','right','scan_log','bottom','#22d3ee',false],
+['attendance','right','regularization','left','#fb7185',false],['attendance','bottom','monthly','top','#a78bfa',false],['monthly','right','daily_snap','left','#a78bfa',false],
+['lu_stat','left','attendance','right','#60a5fa',true],['lu_method','left','attendance','right','#60a5fa',true],['lu_shift','left','attendance','right','#60a5fa',true],['lu_ot','left','attendance','right','#60a5fa',true],['lu_reg','left','regularization','right','#60a5fa',true]];
+let svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}"><defs><marker id="as" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#38bdf8" opacity=".7"/></marker><marker id="ab" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#60a5fa" opacity=".7"/></marker><marker id="aa" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#fbbf24" opacity=".7"/></marker><marker id="ar" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#fb7185" opacity=".7"/></marker><marker id="ac" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#22d3ee" opacity=".7"/></marker><marker id="av" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#a78bfa" opacity=".7"/></marker></defs>
+<rect x="15" y="3" width="860" height="48" rx="8" fill="#fbbf24" fill-opacity=".03" stroke="#fbbf24" stroke-width="1" stroke-dasharray="6,4" opacity=".3"/><text x="885" y="32" fill="#fbbf24" font-family="JetBrains Mono,monospace" font-size="10" opacity=".5">M1/M3/M4/M5</text>`;
+C.forEach(([fk,fs,tk,ts,color,dashed])=>{const a=anc(E[fk],fs),b=anc(E[tk],ts);const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;let p;
+if(fs==='bottom'&&ts==='top')p=`M${a.x},${a.y} C${a.x},${my} ${b.x},${my} ${b.x},${b.y}`;else if(fs==='right'&&ts==='left')p=`M${a.x},${a.y} C${mx},${a.y} ${mx},${b.y} ${b.x},${b.y}`;else if(fs==='left'&&ts==='right')p=`M${a.x},${a.y} C${mx},${a.y} ${mx},${b.y} ${b.x},${b.y}`;else if(fs==='right'&&ts==='bottom')p=`M${a.x},${a.y} C${a.x+30},${a.y} ${b.x},${a.y} ${b.x},${b.y}`;else p=`M${a.x},${a.y} C${mx},${a.y} ${mx},${b.y} ${b.x},${b.y}`;
+const mc=color==='#38bdf8'?'s':color==='#60a5fa'?'b':color==='#fbbf24'?'a':color==='#fb7185'?'r':color==='#22d3ee'?'c':'v';
+svg+=`<path d="${p}" fill="none" stroke="${color}" stroke-width="1.3" opacity=".4" ${dashed?'stroke-dasharray="5,4"':''} marker-end="url(#a${mc})"/>`});
+Object.values(E).forEach(e=>{const isM=['M1','M4','M5','M3'].includes(e.s);svg+=`<rect x="${e.x}" y="${e.y}" width="${e.w}" height="${e.h}" rx="8" fill="${e.bg}" stroke="${e.color}" stroke-width="${isM?'1':'1.5'}" ${isM?'stroke-dasharray="4,3"':''}/>`;svg+=`<text x="${e.x+e.w/2}" y="${e.y+(e.h>50?24:17)}" text-anchor="middle" fill="${e.color}" font-family="JetBrains Mono,monospace" font-size="${e.h>50?'11':'10.5'}" font-weight="600">${e.label}</text>`;if(e.s&&!isM)svg+=`<text x="${e.x+e.w/2}" y="${e.y+(e.h>50?42:32)}" text-anchor="middle" fill="#8890a6" font-family="DM Sans,sans-serif" font-size="9">${e.s}</text>`});
+svg+=`</svg>`;document.getElementById('erDiagram').innerHTML=svg}
+
+function renderFlow(){const W=1200,H=640;let svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}"><defs><marker id="fg" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#38bdf8" opacity=".8"/></marker></defs>`;
+const lanes=[{x:25,w:185,label:'ROSTERING',color:'#4ade80'},{x:225,w:185,label:'CHECK-IN',color:'#38bdf8'},{x:425,w:185,label:'DURING SHIFT',color:'#fbbf24'},{x:625,w:185,label:'CHECK-OUT',color:'#22d3ee'},{x:825,w:195,label:'POST-SHIFT',color:'#a78bfa'}];
+lanes.forEach(l=>{svg+=`<rect x="${l.x}" y="50" width="${l.w}" height="550" rx="12" fill="${l.color}" fill-opacity=".03" stroke="${l.color}" stroke-width="1" opacity=".2"/>`;svg+=`<text x="${l.x+l.w/2}" y="36" text-anchor="middle" fill="${l.color}" font-family="JetBrains Mono,monospace" font-size="10" font-weight="600" letter-spacing="1.5" opacity=".7">${l.label}</text>`});
+const B=[
+  {x:40,y:80,w:155,h:48,l:'Define Shifts',s:'lu_shift (7 types)',c:'#4ade80'},{x:40,y:165,w:155,h:48,l:'Create Roster',s:'worker_shift_roster',c:'#4ade80'},{x:40,y:250,w:155,h:48,l:'Mark Rest / Holiday',s:'is_rest_day / is_holiday',c:'#4ade80'},{x:40,y:340,w:155,h:44,l:'Assign Field / Gang',s:'field_id + gang_id',c:'#4ade80'},
+  {x:240,y:80,w:155,h:48,l:'Biometric Scan',s:'fingerprint / face',c:'#38bdf8'},{x:240,y:165,w:155,h:48,l:'NFC Badge Tap',s:'nfc_badge_uid match',c:'#38bdf8'},{x:240,y:250,w:155,h:48,l:'GPS Geofence',s:'auto-detect entry',c:'#38bdf8'},{x:240,y:340,w:155,h:48,l:'Mobile App / QR',s:'self-check + photo',c:'#38bdf8'},{x:240,y:430,w:155,h:44,l:'Muster Roll',s:'supervisor manual',c:'#38bdf8'},
+  {x:440,y:80,w:155,h:48,l:'Log Scan Events',s:'attendance_scan_log',c:'#fbbf24'},{x:440,y:165,w:155,h:48,l:'Detect Late Arrival',s:'auto: grace_minutes',c:'#fbbf24'},{x:440,y:250,w:155,h:48,l:'Track Geofence',s:'time_in_field_hours',c:'#fbbf24'},{x:440,y:340,w:155,h:48,l:'Link to Activity',s:'→ daily_activity (M5)',c:'#fbbf24'},{x:440,y:430,w:155,h:44,l:'AI Anomaly Check',s:'buddy punch / mismatch',c:'#fbbf24'},
+  {x:640,y:80,w:155,h:48,l:'Check-Out Scan',s:'multi-method',c:'#22d3ee'},{x:640,y:165,w:155,h:48,l:'Calc Work Hours',s:'auto: gross / net',c:'#22d3ee'},{x:640,y:250,w:155,h:48,l:'Detect Overtime',s:'auto: OT hours + type',c:'#22d3ee'},{x:640,y:340,w:155,h:48,l:'OT Approval',s:'overtime_approved_by',c:'#22d3ee'},{x:640,y:430,w:155,h:44,l:'Mark Leave Absent',s:'link worker_leave',c:'#22d3ee'},
+  {x:840,y:80,w:165,h:48,l:'Regularization',s:'correction workflow',c:'#a78bfa'},{x:840,y:165,w:165,h:48,l:'Plantation Snapshot',s:'daily headcount',c:'#a78bfa'},{x:840,y:250,w:165,h:48,l:'Monthly Summary',s:'payroll-ready rollup',c:'#a78bfa'},{x:840,y:340,w:165,h:48,l:'Bonus Eligibility',s:'attendance_rate check',c:'#a78bfa'},{x:840,y:430,w:165,h:48,l:'Pattern Analysis',s:'vw_absenteeism_patterns',c:'#a78bfa'},{x:840,y:520,w:165,h:44,l:'Blockchain Anchor',s:'tx_hash on all records',c:'#a78bfa'},
+];
+B.forEach(b=>{svg+=`<rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="8" fill="${b.c}" fill-opacity=".08" stroke="${b.c}" stroke-width="1.2"/>`;svg+=`<text x="${b.x+b.w/2}" y="${b.y+19}" text-anchor="middle" fill="${b.c}" font-family="JetBrains Mono,monospace" font-size="10" font-weight="600">${b.l}</text>`;if(b.s)svg+=`<text x="${b.x+b.w/2}" y="${b.y+33}" text-anchor="middle" fill="#8890a6" font-family="DM Sans,sans-serif" font-size="9">${b.s}</text>`});
+[[117,128,117,165],[117,213,117,250],[117,298,117,340],[317,128,317,165],[317,213,317,250],[317,298,317,340],[317,388,317,430],[517,128,517,165],[517,213,517,250],[517,298,517,340],[517,388,517,430],[717,128,717,165],[717,213,717,250],[717,298,717,340],[717,388,717,430],[922,128,922,165],[922,213,922,250],[922,298,922,340],[922,388,922,430],[922,478,922,520]].forEach(a=>svg+=`<line x1="${a[0]}" y1="${a[1]}" x2="${a[2]}" y2="${a[3]}" stroke="#38bdf8" stroke-width="1.2" opacity=".35" marker-end="url(#fg)"/>`);
+[[195,104,240,104],[395,104,440,104],[610,104,640,104],[795,104,840,104],[395,189,440,189],[795,274,840,274]].forEach(a=>svg+=`<line x1="${a[0]}" y1="${a[1]}" x2="${a[2]}" y2="${a[3]}" stroke="#38bdf8" stroke-width="1.2" opacity=".35" marker-end="url(#fg)"/>`);
+svg+=`</svg>`;document.getElementById('flowDiagram').innerHTML=svg}
+renderER();renderFlow();
+</script>
+</body>
+</html>

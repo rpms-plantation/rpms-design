@@ -1,0 +1,262 @@
+---
+title: Module 6 — Attendance Management — Entity Relationship Diagram
+---
+erDiagram
+    %% ═══════════════════════════════════════════
+    %% CROSS-MODULE REFERENCES
+    %% ═══════════════════════════════════════════
+    worker ||--o{ daily_attendance : "attendance records"
+    worker ||--o{ attendance_scan_log : "scan events"
+    worker ||--o{ worker_shift_roster : "shift schedule"
+    worker ||--o{ monthly_attendance_summary : "monthly rollup"
+    worker ||--o{ attendance_regularization : "requests/approves"
+    worker ||--o{ daily_attendance : "approves OT"
+    worker_leave ||--o| daily_attendance : "leave linkage"
+    plantation ||--o{ daily_attendance : "per plantation"
+    plantation ||--o{ attendance_location : "muster points"
+    plantation ||--o{ attendance_scan_log : "scans per plantation"
+    plantation ||--o{ worker_shift_roster : "roster per plantation"
+    plantation ||--o{ monthly_attendance_summary : "monthly per plantation"
+    plantation ||--o{ plantation_daily_attendance : "daily snapshot"
+    division ||--o{ daily_attendance : "per division"
+    division ||--o{ attendance_location : "per division"
+    field ||--o{ worker_shift_roster : "assigned field"
+    gang ||--o{ worker_shift_roster : "assigned gang"
+    daily_activity ||--o| daily_attendance : "activity link"
+
+    %% ═══════════════════════════════════════════
+    %% CORE RELATIONSHIPS
+    %% ═══════════════════════════════════════════
+    daily_attendance ||--o{ attendance_regularization : "corrections"
+    attendance_location ||--o{ daily_attendance : "check-in location"
+    attendance_location ||--o{ daily_attendance : "check-out location"
+    attendance_location ||--o{ attendance_scan_log : "scan location"
+
+    %% ═══════════════════════════════════════════
+    %% LOOKUP RELATIONSHIPS
+    %% ═══════════════════════════════════════════
+    lu_attendance_status ||--o{ daily_attendance : "attendance status"
+    lu_checkin_method ||--o{ daily_attendance : "check-in method"
+    lu_checkin_method ||--o{ daily_attendance : "check-out method"
+    lu_checkin_method ||--o{ attendance_scan_log : "scan method"
+    lu_shift ||--o{ daily_attendance : "expected shift"
+    lu_shift ||--o{ worker_shift_roster : "rostered shift"
+    lu_overtime_type ||--o{ daily_attendance : "OT classification"
+    lu_regularization_reason ||--o{ attendance_regularization : "correction reason"
+
+    %% ═══════════════════════════════════════════
+    %% TABLE DEFINITIONS
+    %% ═══════════════════════════════════════════
+
+    daily_attendance {
+        bigserial attendance_id PK
+        int worker_id FK
+        int plantation_id FK
+        int division_id FK
+        date attendance_date
+        varchar shift_code FK
+        varchar attendance_status FK
+        timestamptz check_in_time
+        varchar check_in_method FK
+        int check_in_location_id FK
+        geometry check_in_gps_point
+        varchar check_in_device_id
+        varchar check_in_photo_url
+        timestamptz check_out_time
+        varchar check_out_method FK
+        int check_out_location_id FK
+        geometry check_out_gps_point
+        numeric gross_hours "auto-calc"
+        int break_minutes
+        numeric net_work_hours "auto-calc"
+        boolean is_late "auto-calc"
+        int late_minutes "auto-calc"
+        boolean is_early_departure
+        boolean has_overtime "auto-calc"
+        numeric overtime_hours "auto-calc"
+        varchar overtime_type_code FK
+        boolean overtime_approved
+        int overtime_approved_by FK "worker"
+        int leave_id FK "worker_leave M4"
+        bigint primary_activity_id FK "daily_activity M5"
+        timestamptz geofence_entry_time
+        timestamptz geofence_exit_time
+        boolean geofence_verified
+        numeric time_in_field_hours
+        boolean is_regularized
+        int regularization_id FK
+        boolean ai_anomaly_flag
+        varchar ai_anomaly_type
+        numeric ai_confidence
+        varchar blockchain_tx_hash
+    }
+
+    attendance_scan_log {
+        bigserial scan_id PK
+        int worker_id FK
+        int plantation_id FK
+        timestamptz scan_timestamp
+        varchar scan_type "IN OUT FIELD_IN FIELD_OUT"
+        varchar method_code FK
+        int location_id FK
+        varchar device_id
+        numeric biometric_match_score
+        varchar nfc_badge_uid
+        geometry gps_point
+        numeric gps_accuracy_m
+        varchar photo_url
+        numeric face_match_score
+        boolean is_verified
+        varchar rejection_reason
+        boolean is_duplicate
+        bigint previous_scan_id
+        varchar blockchain_tx_hash
+    }
+
+    attendance_regularization {
+        serial regularization_id PK
+        bigint attendance_id FK
+        varchar original_status FK
+        varchar corrected_status FK
+        timestamptz original_check_in
+        timestamptz corrected_check_in
+        timestamptz original_check_out
+        timestamptz corrected_check_out
+        varchar reason_code FK
+        text justification
+        varchar supporting_doc_url
+        int requested_by FK "worker"
+        varchar approval_status
+        int approved_by FK "worker"
+        timestamptz approved_at
+        varchar blockchain_tx_hash
+    }
+
+    attendance_location {
+        serial location_id PK
+        int plantation_id FK
+        int division_id FK
+        varchar location_code UK
+        varchar location_name
+        varchar location_type
+        boolean has_biometric
+        boolean has_nfc_reader
+        boolean has_qr_scanner
+        int iot_device_id FK "M3"
+        numeric geofence_radius_m
+        geometry geofence_center
+        geometry geofence_polygon
+    }
+
+    worker_shift_roster {
+        serial roster_id PK
+        int worker_id FK
+        int plantation_id FK
+        date roster_date
+        varchar shift_code FK
+        boolean is_rest_day
+        boolean is_holiday
+        int assigned_field_id FK
+        int assigned_gang_id FK
+    }
+
+    monthly_attendance_summary {
+        serial summary_id PK
+        int worker_id FK
+        int plantation_id FK
+        int summary_month
+        int summary_year
+        int calendar_days
+        int working_days
+        int days_present
+        int days_half
+        int days_late
+        int days_early_out
+        int days_absent_paid
+        int days_absent_unpaid
+        int days_holiday
+        int days_rest
+        int days_training
+        int days_on_leave
+        numeric total_work_hours
+        numeric total_overtime_hours
+        numeric total_ot_normal_hrs
+        numeric total_ot_holiday_hrs
+        numeric total_ot_night_hrs
+        numeric payable_days
+        numeric attendance_rate_pct
+        boolean eligible_for_attendance_bonus
+        numeric attendance_bonus_amount
+        int total_late_minutes
+        int total_anomalies
+        numeric avg_time_in_field_hours
+        int verified_by FK "worker"
+        varchar blockchain_tx_hash
+    }
+
+    plantation_daily_attendance {
+        serial snapshot_id PK
+        int plantation_id FK
+        int division_id FK
+        date snapshot_date
+        int total_workers
+        int workers_present
+        int workers_late
+        int workers_half_day
+        int workers_on_leave
+        int workers_absent_ua
+        int workers_holiday
+        int workers_training
+        int tappers_present
+        int tappers_total
+        int field_workers_present
+        int factory_workers_present
+        numeric attendance_rate_pct
+        numeric tapper_attendance_pct
+        varchar weather_condition
+        numeric rainfall_mm
+        text ai_pattern_alerts
+    }
+
+    lu_attendance_status {
+        varchar status_code PK
+        varchar status_name
+        boolean is_present
+        boolean is_paid
+        boolean affects_bonus
+        varchar display_color
+        int display_order
+    }
+
+    lu_checkin_method {
+        varchar method_code PK
+        varchar method_name
+        int reliability_score "1-5"
+        boolean requires_device
+    }
+
+    lu_shift {
+        varchar shift_code PK
+        varchar shift_name
+        time start_time
+        time end_time
+        int break_minutes
+        numeric work_hours
+        int grace_minutes
+        numeric half_day_hours
+        boolean is_night_shift
+    }
+
+    lu_overtime_type {
+        varchar overtime_code PK
+        varchar overtime_name
+        numeric multiplier
+        numeric max_hours_per_day
+        boolean requires_approval
+    }
+
+    lu_regularization_reason {
+        varchar reason_code PK
+        varchar reason_name
+        boolean auto_approve
+    }
