@@ -1,0 +1,1548 @@
+openapi: 3.0.3
+info:
+  title: RPMS Plantation Service API
+  description: |
+    Module 1 — Plantation Field Records Management.
+    Manages plantations, divisions, fields/blocks, nurseries, clone catalog,
+    land use classification, field lifecycle history, and annual area snapshots.
+    
+    This is the foundation module — plantation_id, division_id, and field_id are
+    referenced by all other RPMS modules (M2–M6).
+    
+    **Spatial**: PostGIS Polygon boundaries on plantation, field, and nursery.
+    GPS coordinates exposed as latitude/longitude pairs in DTOs.
+    
+    **Framework**: Spring Boot 3 + Java 21 (ADR-002)
+    **Database**: PostgreSQL 16 + PostGIS (ADR-001)
+    **Repo**: rpms-mod-plantation
+  version: 1.0.0
+  contact:
+    name: RPMS Architecture Team
+  license:
+    name: Proprietary
+
+servers:
+  - url: /api/plantation
+    description: Behind API Gateway (rpms-platform)
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Plantations
+    description: Plantation/estate master records
+  - name: Divisions
+    description: Organizational divisions within a plantation
+  - name: Fields
+    description: Core operational unit — field/block with single clone and planting year
+  - name: Clones
+    description: Rubber clone master catalog
+  - name: Nurseries
+    description: Nursery units (motherbud, polybag, ground)
+  - name: Nursery Clones
+    description: Clone-wise plant distribution within nurseries
+  - name: Land Use
+    description: Non-planted area classification per plantation
+  - name: Field Lifecycle
+    description: Field status transitions and tapping changes (append-only)
+  - name: Annual Snapshots
+    description: Point-in-time area allocation snapshots
+  - name: Lookups
+    description: Read-only reference data
+
+# ════════════════════════════════════════════════════════════════════
+# PATHS
+# ════════════════════════════════════════════════════════════════════
+paths:
+
+  # ─────────────────────── PLANTATIONS ───────────────────────
+  /plantations:
+    get:
+      tags: [Plantations]
+      summary: List plantations
+      operationId: listPlantations
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
+        - name: region
+          in: query
+          schema: { type: string }
+          description: Filter by region (exact match)
+        - name: district
+          in: query
+          schema: { type: string }
+          description: Filter by district (exact match)
+        - name: status
+          in: query
+          schema: { type: string, enum: [ACTIVE, INACTIVE, DECOMMISSIONED] }
+        - name: search
+          in: query
+          schema: { type: string }
+          description: Search by plantation code or name (case-insensitive contains)
+        - $ref: '#/components/parameters/LatParam'
+        - $ref: '#/components/parameters/LonParam'
+        - $ref: '#/components/parameters/RadiusKmParam'
+      responses:
+        '200':
+          description: Paginated list of plantations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedPlantationResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Plantations]
+      summary: Create a plantation
+      operationId: createPlantation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PlantationCreateRequest' }
+      responses:
+        '201':
+          description: Plantation created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlantationResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /plantations/{plantationId}:
+    parameters:
+      - $ref: '#/components/parameters/PlantationIdPath'
+    get:
+      tags: [Plantations]
+      summary: Get plantation by ID
+      operationId: getPlantation
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlantationResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Plantations]
+      summary: Update a plantation
+      operationId: updatePlantation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PlantationUpdateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlantationResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Plantations]
+      summary: Soft-delete (decommission) a plantation
+      operationId: deletePlantation
+      responses:
+        '204': { description: Plantation decommissioned }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /plantations/{plantationId}/area-summary:
+    parameters:
+      - $ref: '#/components/parameters/PlantationIdPath'
+    get:
+      tags: [Plantations]
+      summary: Get plantation area summary (from vw_plantation_area_summary)
+      operationId: getPlantationAreaSummary
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlantationAreaSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── DIVISIONS ───────────────────────
+  /plantations/{plantationId}/divisions:
+    parameters:
+      - $ref: '#/components/parameters/PlantationIdPath'
+    get:
+      tags: [Divisions]
+      summary: List divisions for a plantation
+      operationId: listDivisions
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - name: isActive
+          in: query
+          schema: { type: boolean }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedDivisionResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Divisions]
+      summary: Create a division
+      operationId: createDivision
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DivisionCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DivisionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /plantations/{plantationId}/divisions/{divisionId}:
+    parameters:
+      - $ref: '#/components/parameters/PlantationIdPath'
+      - $ref: '#/components/parameters/DivisionIdPath'
+    get:
+      tags: [Divisions]
+      summary: Get division by ID
+      operationId: getDivision
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DivisionResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Divisions]
+      summary: Update a division
+      operationId: updateDivision
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DivisionUpdateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DivisionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── FIELDS ───────────────────────
+  /plantations/{plantationId}/fields:
+    parameters:
+      - $ref: '#/components/parameters/PlantationIdPath'
+    get:
+      tags: [Fields]
+      summary: List fields for a plantation
+      operationId: listFields
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
+        - name: divisionId
+          in: query
+          schema: { type: integer }
+          description: Filter by division
+        - name: fieldCategory
+          in: query
+          schema: { type: string, enum: [NEW_CLEARING, REPLANTING, MATURE] }
+        - name: cloneCode
+          in: query
+          schema: { type: string }
+          description: Filter by clone code (exact)
+        - name: status
+          in: query
+          schema: { type: string, enum: [ACTIVE, FALLOW, DECOMMISSIONED] }
+        - name: plantingYearFrom
+          in: query
+          schema: { type: integer }
+        - name: plantingYearTo
+          in: query
+          schema: { type: integer }
+        - $ref: '#/components/parameters/LatParam'
+        - $ref: '#/components/parameters/LonParam'
+        - $ref: '#/components/parameters/RadiusKmParam'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedFieldResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Fields]
+      summary: Create a field
+      operationId: createField
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FieldCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FieldResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /plantations/{plantationId}/fields/{fieldId}:
+    parameters:
+      - $ref: '#/components/parameters/PlantationIdPath'
+      - $ref: '#/components/parameters/FieldIdPath'
+    get:
+      tags: [Fields]
+      summary: Get field by ID
+      operationId: getField
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FieldResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Fields]
+      summary: Update a field
+      operationId: updateField
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FieldUpdateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FieldResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /plantations/{plantationId}/fields/immature:
+    parameters:
+      - $ref: '#/components/parameters/PlantationIdPath'
+    get:
+      tags: [Fields]
+      summary: List immature fields (from vw_immature_fields)
+      operationId: listImmatureFields
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedImmatureFieldResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /plantations/{plantationId}/fields/mature:
+    parameters:
+      - $ref: '#/components/parameters/PlantationIdPath'
+    get:
+      tags: [Fields]
+      summary: List mature fields (from vw_mature_fields)
+      operationId: listMatureFields
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedMatureFieldResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ─────────────────────── FIELD LIFECYCLE ───────────────────────
+  /plantations/{plantationId}/fields/{fieldId}/lifecycle:
+    parameters:
+      - $ref: '#/components/parameters/PlantationIdPath'
+      - $ref: '#/components/parameters/FieldIdPath'
+    get:
+      tags: [Field Lifecycle]
+      summary: List lifecycle events for a field
+      operationId: listFieldLifecycleEvents
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - name: eventType
+          in: query
+          schema:
+            type: string
+            enum: [PLANTED, OPENED_FOR_TAPPING, PANEL_CHANGE, SYSTEM_CHANGE, FALLOW, REPLANTING_STARTED, DECOMMISSIONED]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedFieldLifecycleResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Field Lifecycle]
+      summary: Record a lifecycle event (append-only)
+      description: |
+        Lifecycle events are immutable audit records. Once created, they cannot
+        be updated or deleted. This endpoint supports POST only.
+      operationId: createFieldLifecycleEvent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FieldLifecycleCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FieldLifecycleResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ─────────────────────── CLONES ───────────────────────
+  /clones:
+    get:
+      tags: [Clones]
+      summary: List all rubber clones
+      operationId: listClones
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
+        - name: cloneClass
+          in: query
+          schema: { type: string, enum: ['I', 'II', 'III'] }
+        - name: search
+          in: query
+          schema: { type: string }
+          description: Search by clone code or name
+        - name: isActive
+          in: query
+          schema: { type: boolean }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedCloneResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Clones]
+      summary: Create a clone
+      operationId: createClone
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CloneCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloneResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /clones/{cloneId}:
+    parameters:
+      - name: cloneId
+        in: path
+        required: true
+        schema: { type: integer }
+    get:
+      tags: [Clones]
+      summary: Get clone by ID
+      operationId: getClone
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloneResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Clones]
+      summary: Update a clone
+      operationId: updateClone
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CloneUpdateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloneResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /clones/distribution-summary:
+    get:
+      tags: [Clones]
+      summary: Clone distribution across plantations (from vw_clone_distribution_summary)
+      operationId: getCloneDistributionSummary
+      parameters:
+        - name: plantationId
+          in: query
+          schema: { type: integer }
+          description: Filter by plantation (optional — all plantations if omitted)
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CloneDistributionSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ─────────────────────── NURSERIES ───────────────────────
+  /plantations/{plantationId}/nurseries:
+    parameters:
+      - $ref: '#/components/parameters/PlantationIdPath'
+    get:
+      tags: [Nurseries]
+      summary: List nurseries for a plantation
+      operationId: listNurseries
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - name: nurseryType
+          in: query
+          schema: { type: string }
+          description: Filter by nursery type code (e.g., MOTHERBUD, POLYBAG)
+        - name: status
+          in: query
+          schema: { type: string, enum: [ACTIVE, INACTIVE, CLOSED] }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedNurseryResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Nurseries]
+      summary: Create a nursery
+      operationId: createNursery
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NurseryCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NurseryResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /plantations/{plantationId}/nurseries/{nurseryId}:
+    parameters:
+      - $ref: '#/components/parameters/PlantationIdPath'
+      - name: nurseryId
+        in: path
+        required: true
+        schema: { type: integer }
+    get:
+      tags: [Nurseries]
+      summary: Get nursery by ID
+      operationId: getNursery
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NurseryResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Nurseries]
+      summary: Update a nursery
+      operationId: updateNursery
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NurseryUpdateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NurseryResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── NURSERY CLONE DISTRIBUTION ───────────────────────
+  /plantations/{plantationId}/nurseries/{nurseryId}/clone-distributions:
+    parameters:
+      - $ref: '#/components/parameters/PlantationIdPath'
+      - name: nurseryId
+        in: path
+        required: true
+        schema: { type: integer }
+    get:
+      tags: [Nursery Clones]
+      summary: List clone distributions in a nursery
+      operationId: listNurseryCloneDistributions
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedNurseryCloneDistributionResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Nursery Clones]
+      summary: Record a clone distribution entry
+      operationId: createNurseryCloneDistribution
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NurseryCloneDistributionCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NurseryCloneDistributionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /plantations/{plantationId}/nurseries/{nurseryId}/clone-distributions/{distributionId}:
+    parameters:
+      - $ref: '#/components/parameters/PlantationIdPath'
+      - name: nurseryId
+        in: path
+        required: true
+        schema: { type: integer }
+      - name: distributionId
+        in: path
+        required: true
+        schema: { type: integer }
+    put:
+      tags: [Nursery Clones]
+      summary: Update a clone distribution entry
+      operationId: updateNurseryCloneDistribution
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NurseryCloneDistributionUpdateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NurseryCloneDistributionResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── LAND USE ───────────────────────
+  /plantations/{plantationId}/land-use:
+    parameters:
+      - $ref: '#/components/parameters/PlantationIdPath'
+    get:
+      tags: [Land Use]
+      summary: List land use allocations for a plantation
+      operationId: listLandUse
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - name: landUseCode
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedLandUseResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Land Use]
+      summary: Add a land use allocation
+      operationId: createLandUse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LandUseCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LandUseResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /plantations/{plantationId}/land-use/{landUseId}:
+    parameters:
+      - $ref: '#/components/parameters/PlantationIdPath'
+      - name: landUseId
+        in: path
+        required: true
+        schema: { type: integer }
+    put:
+      tags: [Land Use]
+      summary: Update a land use allocation
+      operationId: updateLandUse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LandUseUpdateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LandUseResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Land Use]
+      summary: Remove a land use allocation
+      operationId: deleteLandUse
+      responses:
+        '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── ANNUAL SNAPSHOTS ───────────────────────
+  /plantations/{plantationId}/annual-snapshots:
+    parameters:
+      - $ref: '#/components/parameters/PlantationIdPath'
+    get:
+      tags: [Annual Snapshots]
+      summary: List annual area snapshots
+      operationId: listAnnualSnapshots
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - name: snapshotYear
+          in: query
+          schema: { type: integer }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedAnnualSnapshotResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Annual Snapshots]
+      summary: Create an annual snapshot
+      operationId: createAnnualSnapshot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AnnualSnapshotCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnnualSnapshotResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ─────────────────────── LOOKUPS ───────────────────────
+  /lookups/measurement-units:
+    get:
+      tags: [Lookups]
+      summary: List measurement units
+      operationId: listMeasurementUnits
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/LookupItem' }
+
+  /lookups/land-use-types:
+    get:
+      tags: [Lookups]
+      summary: List land use types (hierarchical)
+      operationId: listLandUseTypes
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/LandUseTypeLookup' }
+
+  /lookups/nursery-types:
+    get:
+      tags: [Lookups]
+      summary: List nursery types
+      operationId: listNurseryTypes
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/LookupItem' }
+
+  /lookups/field-categories:
+    get:
+      tags: [Lookups]
+      summary: List field categories
+      operationId: listFieldCategories
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/LookupItem' }
+
+  /lookups/tapping-systems:
+    get:
+      tags: [Lookups]
+      summary: List tapping systems
+      operationId: listTappingSystems
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TappingSystemLookup' }
+
+# ════════════════════════════════════════════════════════════════════
+# COMPONENTS
+# ════════════════════════════════════════════════════════════════════
+components:
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Keycloak-issued JWT token
+
+  # ─────────────── SHARED PARAMETERS ───────────────
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      schema: { type: integer, default: 0, minimum: 0 }
+      description: Zero-based page number
+    SizeParam:
+      name: size
+      in: query
+      schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+      description: Page size
+    SortParam:
+      name: sort
+      in: query
+      schema: { type: string }
+      description: 'Sort field and direction (e.g., plantationCode,asc or areaHa,desc)'
+    LatParam:
+      name: lat
+      in: query
+      schema: { type: number, format: double, minimum: -90, maximum: 90 }
+      description: Latitude for spatial proximity filter
+    LonParam:
+      name: lon
+      in: query
+      schema: { type: number, format: double, minimum: -180, maximum: 180 }
+      description: Longitude for spatial proximity filter
+    RadiusKmParam:
+      name: radiusKm
+      in: query
+      schema: { type: number, format: double, default: 10 }
+      description: Search radius in kilometers (requires lat + lon)
+    PlantationIdPath:
+      name: plantationId
+      in: path
+      required: true
+      schema: { type: integer }
+    DivisionIdPath:
+      name: divisionId
+      in: path
+      required: true
+      schema: { type: integer }
+    FieldIdPath:
+      name: fieldId
+      in: path
+      required: true
+      schema: { type: integer }
+
+  # ─────────────── SHARED RESPONSES ───────────────
+  responses:
+    BadRequest:
+      description: Validation error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Unauthorized:
+      description: Missing or invalid JWT token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Conflict:
+      description: Duplicate resource (unique constraint violation)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  # ─────────────── SCHEMAS ───────────────
+  schemas:
+
+    # ── Pagination wrapper ──
+    PageMetadata:
+      type: object
+      properties:
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ── Error ──
+    ErrorResponse:
+      type: object
+      properties:
+        timestamp: { type: string, format: date-time }
+        status: { type: integer }
+        error: { type: string }
+        message: { type: string }
+        path: { type: string }
+        fieldErrors:
+          type: array
+          items:
+            type: object
+            properties:
+              field: { type: string }
+              message: { type: string }
+
+    # ══════════ PLANTATION ══════════
+    PlantationCreateRequest:
+      type: object
+      required: [plantationCode, plantationName, totalSurfaceArea, measurementUnit]
+      properties:
+        plantationCode: { type: string, maxLength: 20 }
+        plantationName: { type: string, maxLength: 200 }
+        companyName: { type: string, maxLength: 200 }
+        region: { type: string, maxLength: 100 }
+        district: { type: string, maxLength: 100 }
+        country: { type: string, maxLength: 100 }
+        address: { type: string }
+        totalSurfaceArea: { type: number, format: double, minimum: 0, exclusiveMinimum: true }
+        measurementUnit: { type: string, description: 'Lookup code from lu_measurement_unit (e.g., HA, AC)' }
+        latitude: { type: number, format: double, minimum: -90, maximum: 90 }
+        longitude: { type: number, format: double, minimum: -180, maximum: 180 }
+        elevationM: { type: number, format: double }
+        avgAnnualRainfallMm: { type: number, format: double }
+        soilType: { type: string, maxLength: 100 }
+        climateZone: { type: string, maxLength: 50 }
+        remarks: { type: string }
+
+    PlantationUpdateRequest:
+      type: object
+      properties:
+        plantationName: { type: string, maxLength: 200 }
+        companyName: { type: string, maxLength: 200 }
+        region: { type: string, maxLength: 100 }
+        district: { type: string, maxLength: 100 }
+        country: { type: string, maxLength: 100 }
+        address: { type: string }
+        totalSurfaceArea: { type: number, format: double, minimum: 0, exclusiveMinimum: true }
+        measurementUnit: { type: string }
+        latitude: { type: number, format: double, minimum: -90, maximum: 90 }
+        longitude: { type: number, format: double, minimum: -180, maximum: 180 }
+        elevationM: { type: number, format: double }
+        avgAnnualRainfallMm: { type: number, format: double }
+        soilType: { type: string, maxLength: 100 }
+        climateZone: { type: string, maxLength: 50 }
+        status: { type: string, enum: [ACTIVE, INACTIVE, DECOMMISSIONED] }
+        remarks: { type: string }
+
+    PlantationResponse:
+      type: object
+      properties:
+        plantationId: { type: integer, readOnly: true }
+        plantationCode: { type: string }
+        plantationName: { type: string }
+        companyName: { type: string }
+        region: { type: string }
+        district: { type: string }
+        country: { type: string }
+        address: { type: string }
+        totalSurfaceArea: { type: number, format: double }
+        measurementUnit: { type: string }
+        latitude: { type: number, format: double }
+        longitude: { type: number, format: double }
+        elevationM: { type: number, format: double }
+        avgAnnualRainfallMm: { type: number, format: double }
+        soilType: { type: string }
+        climateZone: { type: string }
+        status: { type: string }
+        remarks: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+        createdBy: { type: string, readOnly: true }
+        updatedBy: { type: string, readOnly: true }
+
+    PagedPlantationResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/PlantationResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    PlantationAreaSummary:
+      type: object
+      properties:
+        plantationId: { type: integer }
+        plantationCode: { type: string }
+        plantationName: { type: string }
+        totalSurfaceArea: { type: number, format: double }
+        totalPlantedArea: { type: number, format: double }
+        matureArea: { type: number, format: double }
+        immatureArea: { type: number, format: double }
+        nurseryArea: { type: number, format: double }
+        nonPlantedArea: { type: number, format: double }
+        numberOfDivisions: { type: integer }
+        numberOfFields: { type: integer }
+
+    # ══════════ DIVISION ══════════
+    DivisionCreateRequest:
+      type: object
+      required: [divisionCode, divisionName]
+      properties:
+        divisionCode: { type: string, maxLength: 20 }
+        divisionName: { type: string, maxLength: 100 }
+        areaHa: { type: number, format: double }
+        managerName: { type: string, maxLength: 200 }
+
+    DivisionUpdateRequest:
+      type: object
+      properties:
+        divisionName: { type: string, maxLength: 100 }
+        areaHa: { type: number, format: double }
+        managerName: { type: string, maxLength: 200 }
+        isActive: { type: boolean }
+
+    DivisionResponse:
+      type: object
+      properties:
+        divisionId: { type: integer, readOnly: true }
+        plantationId: { type: integer }
+        divisionCode: { type: string }
+        divisionName: { type: string }
+        areaHa: { type: number, format: double }
+        managerName: { type: string }
+        isActive: { type: boolean }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+
+    PagedDivisionResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/DivisionResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ FIELD ══════════
+    FieldCreateRequest:
+      type: object
+      required: [fieldCode, areaHa, measurementUnit, cloneCode, numberOfPlants, plantingYear, fieldCategory]
+      properties:
+        fieldCode: { type: string, maxLength: 30 }
+        fieldName: { type: string, maxLength: 100 }
+        divisionId: { type: integer, description: 'Optional — division within the plantation' }
+        areaHa: { type: number, format: double, minimum: 0, exclusiveMinimum: true }
+        measurementUnit: { type: string }
+        cloneCode: { type: string, description: 'Clone natural key code (e.g., RRIM600)' }
+        numberOfPlants: { type: integer, minimum: 1 }
+        originalStandPerHa: { type: integer }
+        currentStandPerHa: { type: integer }
+        plantingMonth: { type: integer, minimum: 1, maximum: 12 }
+        plantingYear: { type: integer, minimum: 1900, maximum: 2100 }
+        fieldCategory: { type: string, enum: [NEW_CLEARING, REPLANTING, MATURE] }
+        tappingStartMonth: { type: integer, minimum: 1, maximum: 12 }
+        tappingStartYear: { type: integer, minimum: 1900, maximum: 2100 }
+        tappingSystem: { type: string, description: 'Tapping system code (e.g., S/2 d2)' }
+        currentTappingPanel: { type: string, maxLength: 20, description: 'e.g., BI-1, BO-1, HI-1' }
+        latitude: { type: number, format: double, minimum: -90, maximum: 90 }
+        longitude: { type: number, format: double, minimum: -180, maximum: 180 }
+        remarks: { type: string }
+
+    FieldUpdateRequest:
+      type: object
+      properties:
+        fieldName: { type: string, maxLength: 100 }
+        divisionId: { type: integer }
+        areaHa: { type: number, format: double, minimum: 0, exclusiveMinimum: true }
+        currentStandPerHa: { type: integer }
+        fieldCategory: { type: string, enum: [NEW_CLEARING, REPLANTING, MATURE] }
+        tappingStartMonth: { type: integer, minimum: 1, maximum: 12 }
+        tappingStartYear: { type: integer, minimum: 1900, maximum: 2100 }
+        tappingSystem: { type: string }
+        currentTappingPanel: { type: string, maxLength: 20 }
+        latitude: { type: number, format: double, minimum: -90, maximum: 90 }
+        longitude: { type: number, format: double, minimum: -180, maximum: 180 }
+        status: { type: string, enum: [ACTIVE, FALLOW, DECOMMISSIONED] }
+        remarks: { type: string }
+
+    FieldResponse:
+      type: object
+      properties:
+        fieldId: { type: integer, readOnly: true }
+        plantationId: { type: integer }
+        divisionId: { type: integer }
+        fieldCode: { type: string }
+        fieldName: { type: string }
+        areaHa: { type: number, format: double }
+        measurementUnit: { type: string }
+        cloneCode: { type: string }
+        cloneName: { type: string }
+        numberOfPlants: { type: integer }
+        originalStandPerHa: { type: integer }
+        currentStandPerHa: { type: integer }
+        plantingMonth: { type: integer }
+        plantingYear: { type: integer }
+        fieldCategory: { type: string }
+        fieldCategoryName: { type: string }
+        tappingStartMonth: { type: integer }
+        tappingStartYear: { type: integer }
+        tappingSystem: { type: string }
+        tappingSystemName: { type: string }
+        currentTappingPanel: { type: string }
+        latitude: { type: number, format: double }
+        longitude: { type: number, format: double }
+        status: { type: string }
+        remarks: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+
+    PagedFieldResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/FieldResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    ImmatureFieldResponse:
+      type: object
+      properties:
+        plantationCode: { type: string }
+        plantationName: { type: string }
+        divisionCode: { type: string }
+        fieldCode: { type: string }
+        fieldName: { type: string }
+        fieldType: { type: string }
+        cloneCode: { type: string }
+        cloneName: { type: string }
+        areaHa: { type: number, format: double }
+        numberOfPlants: { type: integer }
+        plantingMonth: { type: integer }
+        plantingYear: { type: integer }
+        ageYears: { type: number, format: double }
+
+    PagedImmatureFieldResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/ImmatureFieldResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    MatureFieldResponse:
+      type: object
+      properties:
+        plantationCode: { type: string }
+        plantationName: { type: string }
+        divisionCode: { type: string }
+        fieldCode: { type: string }
+        fieldName: { type: string }
+        cloneCode: { type: string }
+        cloneName: { type: string }
+        areaHa: { type: number, format: double }
+        numberOfPlants: { type: integer }
+        currentStandPerHa: { type: integer }
+        plantingYear: { type: integer }
+        tappingStartYear: { type: integer }
+        tappingSystem: { type: string }
+        tappingAgeYears: { type: number, format: double }
+
+    PagedMatureFieldResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/MatureFieldResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ FIELD LIFECYCLE (append-only) ══════════
+    FieldLifecycleCreateRequest:
+      type: object
+      required: [eventType, eventDate]
+      properties:
+        eventType:
+          type: string
+          enum: [PLANTED, OPENED_FOR_TAPPING, PANEL_CHANGE, SYSTEM_CHANGE, FALLOW, REPLANTING_STARTED, DECOMMISSIONED]
+        eventDate: { type: string, format: date }
+        fromCategory: { type: string, enum: [NEW_CLEARING, REPLANTING, MATURE] }
+        toCategory: { type: string, enum: [NEW_CLEARING, REPLANTING, MATURE] }
+        oldTappingSystem: { type: string }
+        newTappingSystem: { type: string }
+        oldPanel: { type: string, maxLength: 20 }
+        newPanel: { type: string, maxLength: 20 }
+        remarks: { type: string }
+
+    FieldLifecycleResponse:
+      type: object
+      properties:
+        historyId: { type: integer, readOnly: true }
+        fieldId: { type: integer }
+        eventType: { type: string }
+        eventDate: { type: string, format: date }
+        fromCategory: { type: string }
+        toCategory: { type: string }
+        oldTappingSystem: { type: string }
+        newTappingSystem: { type: string }
+        oldPanel: { type: string }
+        newPanel: { type: string }
+        remarks: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        createdBy: { type: string, readOnly: true }
+
+    PagedFieldLifecycleResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/FieldLifecycleResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ CLONE ══════════
+    CloneCreateRequest:
+      type: object
+      required: [cloneCode, cloneName]
+      properties:
+        cloneCode: { type: string, maxLength: 30 }
+        cloneName: { type: string, maxLength: 100 }
+        cloneClass: { type: string, enum: ['I', 'II', 'III'] }
+        parentage: { type: string, maxLength: 200 }
+        originCountry: { type: string, maxLength: 100 }
+        recommendedRegion: { type: string, maxLength: 200 }
+        avgYieldKgPerHa: { type: number, format: double }
+        windResistance: { type: string, enum: [HIGH, MEDIUM, LOW] }
+        diseaseResistance: { type: string, maxLength: 500 }
+        remarks: { type: string }
+
+    CloneUpdateRequest:
+      type: object
+      properties:
+        cloneName: { type: string, maxLength: 100 }
+        cloneClass: { type: string, enum: ['I', 'II', 'III'] }
+        parentage: { type: string, maxLength: 200 }
+        originCountry: { type: string, maxLength: 100 }
+        recommendedRegion: { type: string, maxLength: 200 }
+        avgYieldKgPerHa: { type: number, format: double }
+        windResistance: { type: string, enum: [HIGH, MEDIUM, LOW] }
+        diseaseResistance: { type: string, maxLength: 500 }
+        isActive: { type: boolean }
+        remarks: { type: string }
+
+    CloneResponse:
+      type: object
+      properties:
+        cloneId: { type: integer, readOnly: true }
+        cloneCode: { type: string }
+        cloneName: { type: string }
+        cloneClass: { type: string }
+        parentage: { type: string }
+        originCountry: { type: string }
+        recommendedRegion: { type: string }
+        avgYieldKgPerHa: { type: number, format: double }
+        windResistance: { type: string }
+        diseaseResistance: { type: string }
+        isActive: { type: boolean }
+        remarks: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+
+    PagedCloneResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/CloneResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    CloneDistributionSummary:
+      type: object
+      properties:
+        plantationCode: { type: string }
+        plantationName: { type: string }
+        cloneCode: { type: string }
+        cloneName: { type: string }
+        cloneClass: { type: string }
+        fieldCategory: { type: string }
+        fieldCount: { type: integer }
+        totalAreaHa: { type: number, format: double }
+        totalPlants: { type: integer }
+
+    # ══════════ NURSERY ══════════
+    NurseryCreateRequest:
+      type: object
+      required: [nurseryCode, nurseryType]
+      properties:
+        nurseryCode: { type: string, maxLength: 30 }
+        nurseryName: { type: string, maxLength: 100 }
+        nurseryType: { type: string, description: 'Nursery type code (e.g., MOTHERBUD, POLYBAG, GROUND)' }
+        areaHa: { type: number, format: double }
+        capacityPlants: { type: integer }
+        establishmentDate: { type: string, format: date }
+        latitude: { type: number, format: double, minimum: -90, maximum: 90 }
+        longitude: { type: number, format: double, minimum: -180, maximum: 180 }
+        remarks: { type: string }
+
+    NurseryUpdateRequest:
+      type: object
+      properties:
+        nurseryName: { type: string, maxLength: 100 }
+        areaHa: { type: number, format: double }
+        capacityPlants: { type: integer }
+        latitude: { type: number, format: double, minimum: -90, maximum: 90 }
+        longitude: { type: number, format: double, minimum: -180, maximum: 180 }
+        status: { type: string, enum: [ACTIVE, INACTIVE, CLOSED] }
+        remarks: { type: string }
+
+    NurseryResponse:
+      type: object
+      properties:
+        nurseryId: { type: integer, readOnly: true }
+        plantationId: { type: integer }
+        nurseryCode: { type: string }
+        nurseryName: { type: string }
+        nurseryType: { type: string }
+        nurseryTypeName: { type: string }
+        areaHa: { type: number, format: double }
+        capacityPlants: { type: integer }
+        establishmentDate: { type: string, format: date }
+        latitude: { type: number, format: double }
+        longitude: { type: number, format: double }
+        status: { type: string }
+        remarks: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+
+    PagedNurseryResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/NurseryResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ NURSERY CLONE DISTRIBUTION ══════════
+    NurseryCloneDistributionCreateRequest:
+      type: object
+      required: [cloneCode, numberOfPlants]
+      properties:
+        cloneCode: { type: string, description: 'Clone natural key code' }
+        rootstockCloneCode: { type: string, description: 'Rootstock clone code (for budded plants)' }
+        numberOfPlants: { type: integer, minimum: 0 }
+        recordDate: { type: string, format: date }
+        survivalRatePct: { type: number, format: double, minimum: 0, maximum: 100 }
+        remarks: { type: string }
+
+    NurseryCloneDistributionUpdateRequest:
+      type: object
+      properties:
+        numberOfPlants: { type: integer, minimum: 0 }
+        survivalRatePct: { type: number, format: double, minimum: 0, maximum: 100 }
+        remarks: { type: string }
+
+    NurseryCloneDistributionResponse:
+      type: object
+      properties:
+        distributionId: { type: integer, readOnly: true }
+        nurseryId: { type: integer }
+        cloneCode: { type: string }
+        cloneName: { type: string }
+        rootstockCloneCode: { type: string }
+        rootstockCloneName: { type: string }
+        numberOfPlants: { type: integer }
+        recordDate: { type: string, format: date }
+        survivalRatePct: { type: number, format: double }
+        remarks: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+
+    PagedNurseryCloneDistributionResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/NurseryCloneDistributionResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ LAND USE ══════════
+    LandUseCreateRequest:
+      type: object
+      required: [landUseCode, areaValue, measurementUnit]
+      properties:
+        landUseCode: { type: string, description: 'Land use type code (e.g., BUILDING, ROADS, WATER)' }
+        areaValue: { type: number, format: double, minimum: 0 }
+        measurementUnit: { type: string }
+        effectiveDate: { type: string, format: date }
+        remarks: { type: string }
+
+    LandUseUpdateRequest:
+      type: object
+      properties:
+        areaValue: { type: number, format: double, minimum: 0 }
+        remarks: { type: string }
+
+    LandUseResponse:
+      type: object
+      properties:
+        landUseId: { type: integer, readOnly: true }
+        plantationId: { type: integer }
+        landUseCode: { type: string }
+        landUseTypeName: { type: string }
+        areaValue: { type: number, format: double }
+        measurementUnit: { type: string }
+        effectiveDate: { type: string, format: date }
+        remarks: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+
+    PagedLandUseResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/LandUseResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ ANNUAL SNAPSHOT ══════════
+    AnnualSnapshotCreateRequest:
+      type: object
+      required: [snapshotYear, snapshotDate, totalSurfaceArea, plantedArea, matureArea, immatureArea]
+      properties:
+        snapshotYear: { type: integer }
+        snapshotDate: { type: string, format: date }
+        totalSurfaceArea: { type: number, format: double }
+        plantedArea: { type: number, format: double }
+        matureArea: { type: number, format: double }
+        immatureArea: { type: number, format: double }
+        nurseryArea: { type: number, format: double }
+        buildingAndInfraArea: { type: number, format: double }
+        otherNonPlantedArea: { type: number, format: double }
+        totalTreesPlanted: { type: integer }
+        averageStandPerHa: { type: integer }
+        numberOfActiveDivisions: { type: integer }
+        numberOfActiveFields: { type: integer }
+        remarks: { type: string }
+
+    AnnualSnapshotResponse:
+      type: object
+      properties:
+        snapshotId: { type: integer, readOnly: true }
+        plantationId: { type: integer }
+        snapshotYear: { type: integer }
+        snapshotDate: { type: string, format: date }
+        totalSurfaceArea: { type: number, format: double }
+        plantedArea: { type: number, format: double }
+        matureArea: { type: number, format: double }
+        immatureArea: { type: number, format: double }
+        nurseryArea: { type: number, format: double }
+        buildingAndInfraArea: { type: number, format: double }
+        otherNonPlantedArea: { type: number, format: double }
+        totalTreesPlanted: { type: integer }
+        averageStandPerHa: { type: integer }
+        numberOfActiveDivisions: { type: integer }
+        numberOfActiveFields: { type: integer }
+        remarks: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+
+    PagedAnnualSnapshotResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/AnnualSnapshotResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ LOOKUPS ══════════
+    LookupItem:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        description: { type: string }
+        isActive: { type: boolean }
+
+    LandUseTypeLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        description: { type: string }
+        parentCode: { type: string, description: 'Parent land use code for hierarchical types' }
+        isActive: { type: boolean }
+
+    TappingSystemLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        description: { type: string }
+        cutFrequency: { type: string, description: 'e.g., d2 = every 2 days, d3 = every 3 days' }
+        panelNotation: { type: string }
+        isActive: { type: boolean }
