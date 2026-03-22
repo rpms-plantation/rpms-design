@@ -1,361 +1,767 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RPMS — High Level Architecture</title>
-<style>
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,500;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;600&family=Fraunces:opsz,wght@9..144,700;9..144,900&display=swap');
-:root{--bg:#090b10;--surface:#12151e;--surface2:#181c28;--surface3:#1e2335;--border:#252b3d;--border-glow:#3a4260;--text:#e2e5ef;--text-dim:#8891a8;--text-muted:#5a6380;--green:#4ade80;--green-dim:rgba(74,222,128,.1);--blue:#60a5fa;--blue-dim:rgba(96,165,250,.08);--amber:#fbbf24;--amber-dim:rgba(251,191,36,.08);--rose:#fb7185;--rose-dim:rgba(251,113,133,.08);--violet:#a78bfa;--violet-dim:rgba(167,139,250,.08);--cyan:#22d3ee;--cyan-dim:rgba(34,211,238,.08);--teal:#2dd4bf;--teal-dim:rgba(45,212,191,.08);--orange:#fb923c;--orange-dim:rgba(251,146,60,.08);--sky:#38bdf8;--sky-dim:rgba(56,189,248,.08);--lime:#a3e635;--lime-dim:rgba(163,230,53,.08);--pink:#f472b6;--pink-dim:rgba(244,114,182,.08);--red:#ef4444;--red-dim:rgba(239,68,68,.08)}
-*{margin:0;padding:0;box-sizing:border-box}body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min-height:100vh;overflow-x:hidden}
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RPMS — High-Level System Architecture</title>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fraunces:wght@700;900&family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap"
+    rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0b0c10;
+      --surface: #12131a;
+      --surface2: #181a24;
+      --border: rgba(255, 255, 255, .08);
+      --border-glow: rgba(96, 165, 250, .2);
+      --text: #e2e5ef;
+      --text-dim: #9ca3af;
+      --text-muted: #6b7280;
+      --blue: #60a5fa;
+      --violet: #a78bfa;
+      --cyan: #22d3ee;
+      --green: #4ade80;
+      --amber: #fbbf24;
+      --orange: #fb923c;
+      --rose: #fb7185;
+      --teal: #2dd4bf;
+      --pink: #f472b6
+    }
 
-.header{padding:48px 48px 32px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,rgba(96,165,250,.04) 0%,transparent 100%);position:relative;overflow:hidden}
-.header::before{content:'';position:absolute;top:-100px;right:-100px;width:400px;height:400px;background:radial-gradient(circle,rgba(96,165,250,.06) 0%,transparent 60%);pointer-events:none}
-.header-tag{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:2.5px;text-transform:uppercase;color:var(--blue);margin-bottom:12px;display:flex;align-items:center;gap:8px}
-.header-tag::before{content:'';display:inline-block;width:8px;height:8px;background:var(--blue);border-radius:50%;box-shadow:0 0 12px var(--blue)}
-.header h1{font-family:'Fraunces',serif;font-weight:900;font-size:38px;line-height:1.12;letter-spacing:-.5px;background:linear-gradient(135deg,#e2e5ef 20%,#60a5fa 60%,#a78bfa 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.header p{color:var(--text-dim);font-size:15px;margin-top:12px;max-width:780px;line-height:1.65}
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box
+    }
 
-.tabs{display:flex;gap:0;padding:0 48px;border-bottom:1px solid var(--border);background:var(--surface);position:sticky;top:0;z-index:100}
-.tab{padding:16px 28px;font-size:13px;font-weight:500;color:var(--text-muted);cursor:pointer;border-bottom:2px solid transparent;transition:all .2s;user-select:none}.tab:hover{color:var(--text-dim)}.tab.active{color:var(--blue);border-bottom-color:var(--blue)}
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', system-ui, sans-serif;
+      line-height: 1.6;
+      overflow-x: hidden
+    }
 
-.tab-content{display:none;padding:40px 48px 60px}.tab-content.active{display:block}
-.section-title{font-family:'Fraunces',serif;font-weight:700;font-size:22px;margin-bottom:6px}
-.section-subtitle{color:var(--text-dim);font-size:13px;margin-bottom:32px;line-height:1.6;max-width:800px}
+    .header {
+      padding: 48px 48px 32px;
+      max-width: 1300px;
+      margin: 0 auto
+    }
 
-/* Architecture Diagram Container */
-.arch-container{width:100%;overflow-x:auto;border:1px solid var(--border);border-radius:14px;background:var(--surface);padding:32px}
-.arch-container svg{display:block;margin:0 auto}
+    .header-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--blue);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px
+    }
 
-/* Layer Cards */
-.layers-grid{display:flex;flex-direction:column;gap:24px}
-.layer{border:1px solid var(--border);border-radius:14px;overflow:hidden;transition:border-color .3s}.layer:hover{border-color:var(--border-glow)}
-.layer-header{padding:18px 24px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none}
-.layer-header:hover{background:rgba(255,255,255,.015)}
-.layer-title{display:flex;align-items:center;gap:12px}
-.layer-icon{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px}
-.layer-name{font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:600}
-.layer-desc{font-size:12px;color:var(--text-muted);margin-top:2px}
-.layer-tech{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-dim);background:var(--surface2);padding:4px 12px;border-radius:6px}
-.layer-body{padding:0 24px 24px;display:none}
-.layer.open .layer-body{display:block}
-.layer-toggle{width:24px;height:24px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);transition:transform .2s;font-size:16px}
-.layer.open .layer-toggle{transform:rotate(180deg)}
+    .header-tag::before {
+      content: '';
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      background: var(--blue);
+      border-radius: 50%;
+      box-shadow: 0 0 12px var(--blue)
+    }
 
-/* Component grid inside layer */
-.comp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin-top:16px}
-.comp{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px;transition:border-color .3s}.comp:hover{border-color:var(--border-glow)}
-.comp-name{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;margin-bottom:6px}
-.comp-desc{font-size:12px;color:var(--text-dim);line-height:1.5}
-.comp-tech-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
-.comp-tag{font-family:'JetBrains Mono',monospace;font-size:10px;padding:3px 8px;border-radius:4px;font-weight:600}
+    .header h1 {
+      font-family: 'Fraunces', serif;
+      font-weight: 900;
+      font-size: 38px;
+      line-height: 1.12;
+      letter-spacing: -.5px;
+      background: linear-gradient(135deg, #e2e5ef 20%, #60a5fa 60%, #a78bfa 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent
+    }
 
-/* Decision Table */
-.decision-table{width:100%;border-collapse:collapse;font-size:13px}
-.decision-table th{text-align:left;padding:14px 18px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid var(--border);background:var(--surface)}
-.decision-table td{padding:12px 18px;border-bottom:1px solid var(--border);vertical-align:top;line-height:1.5}
-.decision-table tr:hover{background:rgba(255,255,255,.015)}
-.dt-choice{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600}
-.dt-reason{color:var(--text-dim);font-size:12px}
+    .header p {
+      color: var(--text-dim);
+      font-size: 15px;
+      margin-top: 12px;
+      max-width: 800px;
+      line-height: 1.65
+    }
 
-@media(max-width:768px){.header,.tabs,.tab-content{padding-left:20px;padding-right:20px}.header h1{font-size:28px}.comp-grid{grid-template-columns:1fr}.tab{padding:14px 14px;font-size:11px}}
-</style>
+    .tabs {
+      display: flex;
+      gap: 0;
+      padding: 0 48px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      position: sticky;
+      top: 0;
+      z-index: 100
+    }
+
+    .tab {
+      padding: 16px 28px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all .2s;
+      user-select: none
+    }
+
+    .tab:hover {
+      color: var(--text-dim)
+    }
+
+    .tab.active {
+      color: var(--blue);
+      border-bottom-color: var(--blue)
+    }
+
+    .tab-content {
+      display: none;
+      padding: 40px 48px 60px;
+      max-width: 1300px;
+      margin: 0 auto
+    }
+
+    .tab-content.active {
+      display: block
+    }
+
+    .section-title {
+      font-family: 'Fraunces', serif;
+      font-weight: 700;
+      font-size: 22px;
+      margin-bottom: 6px
+    }
+
+    .section-subtitle {
+      color: var(--text-dim);
+      font-size: 13px;
+      margin-bottom: 32px;
+      line-height: 1.6;
+      max-width: 800px
+    }
+
+    .arch-container {
+      width: 100%;
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--surface);
+      padding: 32px
+    }
+
+    .arch-container svg {
+      display: block;
+      margin: 0 auto
+    }
+
+    .layers-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 24px
+    }
+
+    .layer {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+      transition: border-color .3s
+    }
+
+    .layer:hover {
+      border-color: var(--border-glow)
+    }
+
+    .layer-header {
+      padding: 18px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      user-select: none
+    }
+
+    .layer-header:hover {
+      background: rgba(255, 255, 255, .015)
+    }
+
+    .layer-title {
+      display: flex;
+      align-items: center;
+      gap: 12px
+    }
+
+    .layer-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px
+    }
+
+    .layer-name {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 14px;
+      font-weight: 600
+    }
+
+    .layer-desc {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 2px
+    }
+
+    .layer-tech {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--text-dim);
+      background: var(--surface2);
+      padding: 4px 12px;
+      border-radius: 6px
+    }
+
+    .layer-body {
+      padding: 0 24px 24px;
+      display: none
+    }
+
+    .layer.open .layer-body {
+      display: block
+    }
+
+    .layer-toggle {
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      transition: transform .2s;
+      font-size: 16px
+    }
+
+    .layer.open .layer-toggle {
+      transform: rotate(180deg)
+    }
+
+    .comp-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 14px;
+      margin-top: 16px
+    }
+
+    .comp {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      transition: border-color .3s
+    }
+
+    .comp:hover {
+      border-color: var(--border-glow)
+    }
+
+    .comp-name {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 6px
+    }
+
+    .comp-desc {
+      font-size: 12px;
+      color: var(--text-dim);
+      line-height: 1.5
+    }
+
+    .comp-tech-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px
+    }
+
+    .comp-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-weight: 600
+    }
+
+    .decision-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px
+    }
+
+    .decision-table th {
+      text-align: left;
+      padding: 14px 18px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface)
+    }
+
+    .decision-table td {
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+      line-height: 1.5
+    }
+
+    .decision-table tr:hover {
+      background: rgba(255, 255, 255, .015)
+    }
+
+    .dt-choice {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      font-weight: 600
+    }
+
+    .dt-reason {
+      color: var(--text-dim);
+      font-size: 12px
+    }
+
+    .dt-adr {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--blue);
+      opacity: .7
+    }
+
+    @media(max-width:768px) {
+
+      .header,
+      .tabs,
+      .tab-content {
+        padding-left: 20px;
+        padding-right: 20px
+      }
+
+      .header h1 {
+        font-size: 28px
+      }
+
+      .comp-grid {
+        grid-template-columns: 1fr
+      }
+
+      .tab {
+        padding: 14px 14px;
+        font-size: 11px
+      }
+    }
+  </style>
 </head>
+
 <body>
 
-<div class="header">
-  <div class="header-tag">Rubber Plantation Management System</div>
-  <h1>High-Level System<br>Architecture</h1>
-  <p>Event-driven microservices architecture built on Java/Spring Boot and Quarkus, deployed on Kubernetes, integrating IoT telemetry, blockchain provenance, Gen AI intelligence, and AR/MR field experiences — designed for Phase 1 (6 modules) and extensible for future phases.</p>
-</div>
-
-<div class="tabs">
-  <div class="tab active" onclick="switchTab('diagram')">Architecture Diagram</div>
-  <div class="tab" onclick="switchTab('layers')">Layer Details</div>
-  <div class="tab" onclick="switchTab('decisions')">Technology Decisions</div>
-  <div class="tab" onclick="switchTab('deploy')">Deployment View</div>
-</div>
-
-<!-- TAB 1: ARCHITECTURE DIAGRAM -->
-<div class="tab-content active" id="tab-diagram">
-  <div class="section-title">System Architecture Overview</div>
-  <div class="section-subtitle">Eight architectural layers — from field-edge devices through integration backbone to cloud-native services, with AI/ML and blockchain as cross-cutting capabilities.</div>
-  <div class="arch-container" id="archDiagram"></div>
-</div>
-
-<!-- TAB 2: LAYER DETAILS -->
-<div class="tab-content" id="tab-layers">
-  <div class="section-title">Architecture Layers</div>
-  <div class="section-subtitle">Click each layer to expand component details, technologies, and responsibilities.</div>
-  <div class="layers-grid" id="layersGrid"></div>
-</div>
-
-<!-- TAB 3: TECHNOLOGY DECISIONS -->
-<div class="tab-content" id="tab-decisions">
-  <div class="section-title">Technology Decisions & Rationale</div>
-  <div class="section-subtitle">Why each technology was chosen — with alternatives considered and trade-offs evaluated.</div>
-  <div style="border:1px solid var(--border);border-radius:14px;overflow:hidden">
-    <table class="decision-table" id="decisionTable"></table>
+  <div class="header">
+    <div class="header-tag">Rubber Plantation Management System</div>
+    <h1>High-Level System<br>Architecture</h1>
+    <p>Modular pluggable microservices architecture — each module is an independently deployable vertical slice (backend
+      + frontend + migrations) sharing a single PostgreSQL database. Built on Java 21, Spring Boot 3, Quarkus, Angular
+      18, and Kotlin Multiplatform, deployed on Kubernetes with Apache Kafka event backbone, IoT telemetry, blockchain
+      provenance, and Gen AI intelligence.</p>
   </div>
-</div>
 
-<!-- TAB 4: DEPLOYMENT VIEW -->
-<div class="tab-content" id="tab-deploy">
-  <div class="section-title">Deployment Topology</div>
-  <div class="section-subtitle">Cloud-native Kubernetes deployment across three environments with edge computing for plantation-level IoT processing.</div>
-  <div class="arch-container" id="deployDiagram"></div>
-</div>
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('diagram')">Architecture Diagram</div>
+    <div class="tab" onclick="switchTab('layers')">Layer Details</div>
+    <div class="tab" onclick="switchTab('decisions')">Technology Decisions</div>
+    <div class="tab" onclick="switchTab('deploy')">Deployment View</div>
+  </div>
 
-<script>
-function switchTab(id){
-  const tabs=['diagram','layers','decisions','deploy'];
-  document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',tabs[i]===id));
-  document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
-  document.getElementById('tab-'+id).classList.add('active');
-}
+  <!-- TAB 1: ARCHITECTURE DIAGRAM -->
+  <div class="tab-content active" id="tab-diagram">
+    <div class="section-title">Modular Pluggable Architecture</div>
+    <div class="section-subtitle">Ten architectural layers — from field-edge devices through thin shell compositors and
+      independently deployable module services to a shared PostgreSQL database, with platform foundation, AI/ML and
+      blockchain as cross-cutting capabilities.</div>
+    <div class="arch-container" id="archDiagram"></div>
+  </div>
 
-// ══════════════════════════════════════════
-// LAYER DATA
-// ══════════════════════════════════════════
-const layers = [
-  { id:'edge', name:'Layer 1 — Edge / Field Devices', desc:'IoT sensors, wearables, and field equipment',
-    color:'#22d3ee', bg:'rgba(34,211,238,.06)', icon:'📡', tech:'MQTT · BLE · NFC · ARCore/ARKit',
-    components:[
-      {name:'Smart Tapping Knives',desc:'IoT-enabled knives capturing cut angle, depth, count per tree. Transmit via BLE to field gateway.',tags:[{t:'BLE 5.0',c:'var(--cyan)'},{t:'MQTT',c:'var(--green)'}]},
-      {name:'GPS Wearables & Geofence Beacons',desc:'Worker location tracking, automatic attendance check-in via geofence entry. Heart rate and step count for safety.',tags:[{t:'GPS/GNSS',c:'var(--cyan)'},{t:'BLE Beacon',c:'var(--blue)'}]},
-      {name:'NFC / RFID Tags',desc:'Tree tags (NFC), worker badges (NFC), and field markers. Scanned by mobile devices for instant identification.',tags:[{t:'NFC',c:'var(--cyan)'},{t:'UHF RFID',c:'var(--blue)'}]},
-      {name:'Environmental Sensors',desc:'Rain gauges, temperature/humidity probes, soil moisture sensors deployed across fields. Solar-powered with LoRaWAN backhaul.',tags:[{t:'LoRaWAN',c:'var(--green)'},{t:'Solar IoT',c:'var(--amber)'}]},
-      {name:'Digital Collection Scales',desc:'Bluetooth-enabled weighing scales at collection points. Auto-transmit weights to mobile app and backend.',tags:[{t:'Bluetooth',c:'var(--cyan)'},{t:'RS-232',c:'var(--text-muted)'}]},
-      {name:'AR/MR Headsets & Mobile AR',desc:'Phone-based ARCore/ARKit for tree data overlay and tapping guides. HoloLens/Quest 3 for MR training stations.',tags:[{t:'ARCore',c:'var(--violet)'},{t:'HoloLens 2',c:'var(--pink)'}]},
-    ]},
-  { id:'gateway', name:'Layer 2 — Field Edge Gateway', desc:'On-premise processing at plantation level',
-    color:'#4ade80', bg:'rgba(74,222,128,.06)', icon:'🔌', tech:'Eclipse Mosquitto · Apache Camel · K3s',
-    components:[
-      {name:'MQTT Broker (Mosquitto)',desc:'Local MQTT broker at each plantation receiving IoT telemetry. Handles intermittent connectivity with QoS 1/2 message persistence.',tags:[{t:'Mosquitto',c:'var(--green)'},{t:'MQTT 5.0',c:'var(--cyan)'}]},
-      {name:'Edge Camel Router',desc:'Apache Camel routes running on lightweight K3s. Protocol mediation (MQTT → Kafka), data filtering, local aggregation, and store-and-forward when WAN is down.',tags:[{t:'Apache Camel',c:'var(--orange)'},{t:'K3s',c:'var(--blue)'}]},
-      {name:'Local Data Cache (SQLite)',desc:'SQLite for offline data buffering. When connectivity drops, field data queues locally and syncs to cloud when restored.',tags:[{t:'SQLite',c:'var(--amber)'},{t:'Sync Engine',c:'var(--green)'}]},
-      {name:'Biometric Processing Unit',desc:'On-premise fingerprint/face matching for attendance. Templates stored locally for zero-latency matching even without internet.',tags:[{t:'OpenCV',c:'var(--violet)'},{t:'Local GPU',c:'var(--rose)'}]},
-    ]},
-  { id:'mobile', name:'Layer 3 — Mobile & Client Applications', desc:'Field-facing interfaces for all user roles',
-    color:'#fb923c', bg:'rgba(251,146,60,.06)', icon:'📱', tech:'Kotlin Multiplatform · Jetpack Compose · Angular 18 · PWA',
-    components:[
-      {name:'Tapper Mobile App (KMP + Compose)',desc:'Primary field app — NFC tree scanning via native NfcAdapter, BLE connection to smart knives and scales, attendance check-in, activity logging, CameraX photo capture with AR overlay guides, ForegroundService GPS tracking for 6-hour shifts. SQLDelight for offline-first local DB with background sync.',tags:[{t:'Kotlin',c:'var(--orange)'},{t:'Compose',c:'var(--cyan)'},{t:'SQLDelight',c:'var(--amber)'},{t:'BLE/NFC',c:'var(--green)'}]},
-      {name:'Supervisor Tablet App (KMP + Compose)',desc:'Daily work plan management, task assignment, field inspections with CameraX + AR overlay, quality audits, gang roster management. Shares KMP business logic module with tapper app.',tags:[{t:'Kotlin',c:'var(--orange)'},{t:'Compose',c:'var(--cyan)'},{t:'CameraX',c:'var(--violet)'}]},
-      {name:'Management Web Dashboard (Angular)',desc:'Estate-level dashboards — yield analytics, attendance heatmaps, clone performance, disease hotspots, financial summaries. Real-time updates via RxJS WebSocket. Angular Reactive Forms for complex data entry across all modules.',tags:[{t:'Angular 18',c:'var(--rose)'},{t:'ngx-charts',c:'var(--green)'},{t:'ngx-mapbox-gl',c:'var(--teal)'},{t:'RxJS',c:'var(--violet)'}]},
-      {name:'Progressive Web App (PWA)',desc:'Lightweight fallback for workers without native app support. Core attendance and activity logging via mobile browser.',tags:[{t:'PWA',c:'var(--orange)'},{t:'Service Worker',c:'var(--blue)'}]},
-    ]},
-  { id:'api', name:'Layer 4 — API Gateway & Security', desc:'Single entry point, authentication, rate limiting',
-    color:'#60a5fa', bg:'rgba(96,165,250,.06)', icon:'🔒', tech:'Spring Cloud Gateway · Keycloak · OAuth2',
-    components:[
-      {name:'API Gateway (Spring Cloud Gateway)',desc:'Centralized entry for all API calls. Route-level rate limiting, request/response transformation, circuit breaking, and API versioning (v1, v2).',tags:[{t:'Spring Cloud GW',c:'var(--blue)'},{t:'Resilience4j',c:'var(--green)'}]},
-      {name:'Identity & Access (Keycloak)',desc:'OAuth2/OIDC provider. Role-based access control: TAPPER, SUPERVISOR, CONDUCTOR, MANAGER, ADMIN. Multi-tenant for multi-plantation orgs. SSO across web/mobile.',tags:[{t:'Keycloak',c:'var(--blue)'},{t:'OAuth2/OIDC',c:'var(--violet)'},{t:'JWT',c:'var(--amber)'}]},
-      {name:'API Documentation (OpenAPI)',desc:'Auto-generated OpenAPI 3.0 specs. Swagger UI for dev portal. SDK generation for mobile clients.',tags:[{t:'SpringDoc',c:'var(--blue)'},{t:'OpenAPI 3.0',c:'var(--green)'}]},
-    ]},
-  { id:'services', name:'Layer 5 — Microservices (Business Logic)', desc:'Domain-driven services — one per module',
-    color:'#a78bfa', bg:'rgba(167,139,250,.06)', icon:'⚙️', tech:'Spring Boot 3 · Quarkus · Java 21',
-    components:[
-      {name:'Plantation Service (Spring Boot)',desc:'Module 1 — field records, land use, divisions, nurseries. CRUD + spatial queries via PostGIS. Relatively stable domain, well-suited to Spring Boot.',tags:[{t:'Spring Boot 3',c:'var(--violet)'},{t:'PostGIS',c:'var(--green)'}]},
-      {name:'Tree Service (Spring Boot)',desc:'Module 2 — individual tree lifecycle, growth measurements, disease tracking, mortality. High read volume (tree lookups during NFC scans).',tags:[{t:'Spring Boot 3',c:'var(--violet)'},{t:'Redis Cache',c:'var(--rose)'}]},
-      {name:'Tapping Service (Quarkus)',desc:'Module 3 — tapping tasks, latex collection, quality testing. High write volume with IoT telemetry ingestion. Quarkus for fast startup and low memory in container scaling.',tags:[{t:'Quarkus',c:'var(--cyan)'},{t:'Reactive',c:'var(--green)'}]},
-      {name:'Workforce Service (Spring Boot)',desc:'Module 4 — worker CRUD, skills, leave, training, pay structures, safety incidents. Integration with Keycloak for user provisioning.',tags:[{t:'Spring Boot 3',c:'var(--violet)'},{t:'Keycloak Admin',c:'var(--blue)'}]},
-      {name:'Activity Service (Quarkus)',desc:'Module 5 — daily plans, activities, material tracking, photo evidence, inspections. High write throughput from field workers logging activities throughout the day.',tags:[{t:'Quarkus',c:'var(--cyan)'},{t:'S3 for Photos',c:'var(--amber)'}]},
-      {name:'Attendance Service (Quarkus)',desc:'Module 6 — scan log ingestion, daily attendance computation, regularization workflow, monthly summaries. Extremely high event rate from biometric/NFC/GPS scans.',tags:[{t:'Quarkus',c:'var(--cyan)'},{t:'Kafka Streams',c:'var(--green)'}]},
-      {name:'Notification Service',desc:'Cross-cutting — push notifications, SMS alerts, email. Expiring documents, weather alerts, task assignments, leave approvals.',tags:[{t:'Spring Boot',c:'var(--violet)'},{t:'Firebase FCM',c:'var(--orange)'},{t:'Twilio',c:'var(--rose)'}]},
-      {name:'Reporting & Analytics Service',desc:'Cross-cutting — pre-aggregated views, OLAP queries, export to Excel/PDF. Scheduled jobs for daily/monthly rollups.',tags:[{t:'Spring Boot',c:'var(--violet)'},{t:'JasperReports',c:'var(--amber)'}]},
-    ]},
-  { id:'integration', name:'Layer 6 — Integration & Event Backbone', desc:'Async messaging, orchestration, and external integrations',
-    color:'#fbbf24', bg:'rgba(251,191,36,.06)', icon:'🔄', tech:'Apache Kafka · Apache Camel · Debezium',
-    components:[
-      {name:'Event Bus (Apache Kafka)',desc:'Central nervous system. Domain events: TreeStatusChanged, TappingTaskCompleted, AttendanceScanReceived, LatexCollected. Enables loose coupling between modules.',tags:[{t:'Kafka 3.x',c:'var(--amber)'},{t:'Schema Registry',c:'var(--green)'}]},
-      {name:'Integration Router (Apache Camel)',desc:'Cloud-side Camel routes for external integrations — weather APIs, payment gateways, government reporting, ERP sync. Protocol bridges and data transformation.',tags:[{t:'Apache Camel 4',c:'var(--orange)'},{t:'100+ Connectors',c:'var(--blue)'}]},
-      {name:'CDC Pipeline (Debezium)',desc:'Change Data Capture from PostgreSQL WAL. Streams database changes as Kafka events — enables real-time dashboards, analytics sync, and audit trail without polling.',tags:[{t:'Debezium',c:'var(--amber)'},{t:'PG WAL',c:'var(--green)'}]},
-      {name:'Saga Orchestrator',desc:'Long-running transaction coordination across services. Example: "Worker Transfer" saga spans Workforce + Attendance + Tapping reassignment atomically.',tags:[{t:'Temporal.io',c:'var(--violet)'},{t:'Java SDK',c:'var(--blue)'}]},
-    ]},
-  { id:'ai', name:'Layer 7 — AI/ML & Blockchain Services', desc:'Intelligence layer and trust anchor',
-    color:'#fb7185', bg:'rgba(251,113,133,.06)', icon:'🧠', tech:'Python · PyTorch · LangChain · Hyperledger',
-    components:[
-      {name:'Gen AI Copilot (LangChain + RAG)',desc:'Natural language querying: "Which RRIM 600 blocks have declining yield?" RAG over plantation database + documents. Powered by Claude API or local LLM.',tags:[{t:'LangChain',c:'var(--rose)'},{t:'Claude API',c:'var(--violet)'},{t:'pgvector',c:'var(--green)'}]},
-      {name:'Computer Vision Service',desc:'Photo analysis — tapping cut quality scoring, leaf disease detection, bark condition assessment. Mobile app sends photo → AI returns structured JSONB result.',tags:[{t:'PyTorch',c:'var(--rose)'},{t:'ONNX Runtime',c:'var(--orange)'},{t:'FastAPI',c:'var(--cyan)'}]},
-      {name:'Yield Prediction Engine',desc:'Time-series forecasting — predicts next-day/week yield per field based on weather, clone, tree age, tapping system, and historical patterns.',tags:[{t:'Prophet',c:'var(--rose)'},{t:'XGBoost',c:'var(--green)'},{t:'MLflow',c:'var(--amber)'}]},
-      {name:'Anomaly Detection Service',desc:'Detects attendance fraud (buddy punching), unusual absence patterns, yield anomalies, material usage spikes. Streaming analysis on Kafka events.',tags:[{t:'Kafka Streams',c:'var(--amber)'},{t:'Isolation Forest',c:'var(--rose)'}]},
-      {name:'Blockchain Anchor Service',desc:'Hyperledger Fabric private network. Anchors hashes of critical records: yield provenance, attendance logs, status changes. Smart contracts for sustainability certification.',tags:[{t:'Hyperledger Fabric',c:'var(--blue)'},{t:'Chaincode (Go)',c:'var(--cyan)'}]},
-    ]},
-  { id:'data', name:'Layer 8 — Data & Storage', desc:'Persistent storage, caching, search, and object store',
-    color:'#2dd4bf', bg:'rgba(45,212,191,.06)', icon:'💾', tech:'PostgreSQL · Redis · Elasticsearch · MinIO',
-    components:[
-      {name:'PostgreSQL + PostGIS (Primary)',desc:'Operational database — all 6 modules, 60+ tables, spatial indexes. Read replicas for dashboard queries. Connection pooling via PgBouncer.',tags:[{t:'PostgreSQL 16',c:'var(--teal)'},{t:'PostGIS',c:'var(--green)'},{t:'PgBouncer',c:'var(--blue)'}]},
-      {name:'TimescaleDB (IoT Telemetry)',desc:'Time-series extension on PostgreSQL for high-volume sensor data. Automatic partitioning, compression, and continuous aggregates for the iot_sensor_reading table.',tags:[{t:'TimescaleDB',c:'var(--teal)'},{t:'Hypertables',c:'var(--green)'}]},
-      {name:'Redis (Cache & Sessions)',desc:'Tree profile cache (NFC scan → instant lookup), session store, rate limiting counters, real-time dashboard pub/sub.',tags:[{t:'Redis 7',c:'var(--rose)'},{t:'Redis Streams',c:'var(--amber)'}]},
-      {name:'Elasticsearch (Search & Logs)',desc:'Full-text search across workers, trees, fields. Centralized log aggregation from all services. Kibana for operational dashboards.',tags:[{t:'Elasticsearch 8',c:'var(--amber)'},{t:'Kibana',c:'var(--green)'}]},
-      {name:'MinIO / S3 (Object Store)',desc:'Photos, documents, certificates, AI model artifacts, report exports. S3-compatible API for cloud portability.',tags:[{t:'MinIO',c:'var(--teal)'},{t:'S3 API',c:'var(--orange)'}]},
-      {name:'pgvector (AI Embeddings)',desc:'Vector extension on PostgreSQL for RAG. Stores embeddings of plantation documents, SOPs, and historical reports for Gen AI natural language querying.',tags:[{t:'pgvector',c:'var(--teal)'},{t:'HNSW Index',c:'var(--violet)'}]},
-    ]},
-];
+  <!-- TAB 2: LAYER DETAILS -->
+  <div class="tab-content" id="tab-layers">
+    <div class="section-title">Architecture Layers</div>
+    <div class="section-subtitle">Click each layer to expand component details, technologies, and responsibilities.
+    </div>
+    <div class="layers-grid" id="layersGrid"></div>
+  </div>
 
-// ══════════════════════════════════════════
-// RENDER: Layer Cards
-// ══════════════════════════════════════════
-const lg = document.getElementById('layersGrid');
-layers.forEach(l => {
-  const comps = l.components.map(c => {
-    const tags = c.tags.map(t => `<span class="comp-tag" style="background:${t.c}15;color:${t.c}">${t.t}</span>`).join('');
-    return `<div class="comp"><div class="comp-name" style="color:${l.color}">${c.name}</div><div class="comp-desc">${c.desc}</div><div class="comp-tech-tags">${tags}</div></div>`;
-  }).join('');
-  lg.innerHTML += `
-    <div class="layer" id="layer-${l.id}" onclick="this.classList.toggle('open')">
-      <div class="layer-header">
-        <div class="layer-title">
-          <div class="layer-icon" style="background:${l.bg};border:1px solid ${l.color}30">${l.icon}</div>
-          <div><div class="layer-name" style="color:${l.color}">${l.name}</div><div class="layer-desc">${l.desc}</div></div>
-        </div>
-        <div style="display:flex;align-items:center;gap:16px">
-          <span class="layer-tech">${l.tech}</span>
-          <span class="layer-toggle">▼</span>
-        </div>
+  <!-- TAB 3: TECHNOLOGY DECISIONS -->
+  <div class="tab-content" id="tab-decisions">
+    <div class="section-title">Technology Decisions & Rationale</div>
+    <div class="section-subtitle">Why each technology was chosen — with alternatives considered, ADR references, and
+      trade-offs evaluated.</div>
+    <div style="border:1px solid var(--border);border-radius:14px;overflow:hidden">
+      <table class="decision-table" id="decisionTable"></table>
+    </div>
+  </div>
+
+  <!-- TAB 4: DEPLOYMENT VIEW -->
+  <div class="tab-content" id="tab-deploy">
+    <div class="section-title">Deployment Topology</div>
+    <div class="section-subtitle">Cloud-native Kubernetes deployment with per-module independent CI/CD pipelines, edge
+      computing for plantation-level IoT, and thin shell compositors for web and mobile.</div>
+    <div class="arch-container" id="deployDiagram"></div>
+  </div>
+
+  <script>
+    function switchTab(id) {
+      const tabs = ['diagram', 'layers', 'decisions', 'deploy'];
+      document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', tabs[i] === id));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      document.getElementById('tab-' + id).classList.add('active');
+    }
+
+    // ══════════════════════════════════════════
+    // LAYER DATA
+    // ══════════════════════════════════════════
+    const layers = [
+      {
+        id: 'edge', name: 'Layer 1 — Edge / Field Devices', desc: 'IoT sensors, wearables, and field equipment',
+        color: '#22d3ee', bg: 'rgba(34,211,238,.06)', icon: '📡', tech: 'MQTT · BLE · NFC · ARCore',
+        components: [
+          { name: 'Smart Tapping Knives', desc: 'IoT-enabled knives capturing cut angle, depth, count per tree. Transmit via BLE to tapper\'s phone and field gateway.', tags: [{ t: 'BLE 5.0', c: 'var(--cyan)' }, { t: 'MQTT', c: 'var(--green)' }] },
+          { name: 'GPS Wearables & Geofence Beacons', desc: 'Worker location tracking via GPS band. BLE geofence beacons at field entrances for automatic attendance check-in.', tags: [{ t: 'GPS/GNSS', c: 'var(--cyan)' }, { t: 'BLE Beacon', c: 'var(--blue)' }] },
+          { name: 'NFC / RFID Tree Tags', desc: 'NFC tags on each tree for instant identification during tapping rounds. Worker badges for attendance. QR codes as fallback.', tags: [{ t: 'NFC-A/F/V', c: 'var(--cyan)' }, { t: 'UHF RFID', c: 'var(--blue)' }] },
+          { name: 'Environmental Sensors', desc: 'Rain gauges, temperature/humidity probes, soil moisture. Solar-powered with LoRaWAN backhaul to edge gateway.', tags: [{ t: 'LoRaWAN', c: 'var(--green)' }, { t: 'Solar IoT', c: 'var(--amber)' }] },
+          { name: 'Digital Collection Scales', desc: 'Bluetooth-enabled weighing scales at latex collection points. Auto-transmit net weights to mobile app.', tags: [{ t: 'Bluetooth', c: 'var(--cyan)' }, { t: 'RS-232', c: 'var(--text-muted)' }] },
+          { name: 'AR/MR Devices', desc: 'Phone-based ARCore for tree data overlay and tapping cut guides. MR headsets for training stations.', tags: [{ t: 'ARCore', c: 'var(--green)' }, { t: 'HoloLens', c: 'var(--violet)' }] },
+        ]
+      },
+      {
+        id: 'gateway', name: 'Layer 2 — Field Edge Gateway', desc: 'Per-plantation local processing and store-and-forward sync',
+        color: '#4ade80', bg: 'rgba(74,222,128,.06)', icon: '🏭', tech: 'K3s · Mosquitto · Apache Camel · SQLite',
+        components: [
+          { name: 'MQTT Broker (Mosquitto)', desc: 'Receives telemetry from all field IoT devices. Lightweight, runs on minimal hardware at each plantation office.', tags: [{ t: 'Eclipse Mosquitto', c: 'var(--green)' }, { t: 'TLS', c: 'var(--blue)' }] },
+          { name: 'Edge Integration Router (Apache Camel)', desc: 'Routes MQTT messages to local SQLite cache and forwards to cloud Kafka when WAN is available. Protocol bridging and data transformation.', tags: [{ t: 'Apache Camel 4', c: 'var(--orange)' }, { t: 'MQTT→Kafka', c: 'var(--green)' }] },
+          { name: 'SQLite Sync Cache', desc: 'Offline-first buffer. Stores all field data locally when internet is unavailable. Store-and-forward sync to cloud on reconnection.', tags: [{ t: 'SQLite', c: 'var(--green)' }, { t: 'WAL Mode', c: 'var(--text-muted)' }] },
+          { name: 'Biometric Unit', desc: 'Fingerprint scanner for attendance muster. Stores templates locally, syncs verification logs to cloud.', tags: [{ t: 'USB/BLE', c: 'var(--cyan)' }, { t: 'ISO 19795', c: 'var(--text-muted)' }] },
+        ]
+      },
+      {
+        id: 'shells', name: 'Layer 3 — Shell Compositors (Client Apps)', desc: 'Thin application shells that lazy-load module packages — zero business logic',
+        color: '#fb923c', bg: 'rgba(251,147,60,.06)', icon: '📱', tech: 'Angular 18 Shell · Compose Navigation Shell · KMP Shared',
+        components: [
+          { name: 'rpms-shell-web (Angular)', desc: 'Thin Angular shell: layout, sidebar, topbar, routing, theme. Lazy-loads @rpms/mod-* npm libraries via dynamic import(). Adding a module = 1 route + 1 nav entry + 1 npm dep.', tags: [{ t: 'Angular 18', c: 'var(--orange)' }, { t: 'Lazy Loading', c: 'var(--blue)' }] },
+          { name: 'rpms-shell-mobile (Compose)', desc: 'Thin Android shell: Compose Navigation host, bottom nav, theme. Composes module KMP features via Gradle dependencies. Adding a module = 1 navGraph() call + 1 Gradle dep.', tags: [{ t: 'Jetpack Compose', c: 'var(--violet)' }, { t: 'Navigation', c: 'var(--blue)' }] },
+          { name: '@rpms/shared (Angular Library)', desc: 'Shared Angular components used by all module libraries: map-viewer, data-table, chart-panel, entity-selector, auth service, JWT interceptor, role guard.', tags: [{ t: 'npm Package', c: 'var(--orange)' }, { t: 'ngx-mapbox-gl', c: 'var(--green)' }] },
+          { name: 'shared-kmp (KMP Module)', desc: 'Shared Kotlin Multiplatform module: domain models, Ktor HTTP client with Keycloak token refresh, SQLDelight base schema, sync engine, validation.', tags: [{ t: 'Ktor 3.x', c: 'var(--violet)' }, { t: 'SQLDelight', c: 'var(--green)' }] },
+        ]
+      },
+      {
+        id: 'apigateway', name: 'Layer 4 — API Gateway & Security', desc: 'Single entry point with authentication, routing, and rate limiting',
+        color: '#60a5fa', bg: 'rgba(96,165,250,.06)', icon: '🔐', tech: 'Spring Cloud Gateway · Keycloak · Redis',
+        components: [
+          { name: 'Spring Cloud Gateway', desc: 'Routes /api/{module}/** to the correct module service. JWT relay, request logging with correlation ID, tenant context extraction from JWT claims.', tags: [{ t: 'Spring Cloud GW', c: 'var(--blue)' }, { t: 'Reactive', c: 'var(--green)' }] },
+          { name: 'Keycloak (OAuth2/OIDC)', desc: 'Identity provider with plantation-aware realm. Roles: SYSTEM_ADMIN, ESTATE_MANAGER, DIVISION_CONDUCTOR, FIELD_SUPERVISOR, TAPPER, COLLECTOR, CLERK. Fine-grained permissions per module.', tags: [{ t: 'Keycloak', c: 'var(--blue)' }, { t: 'OIDC', c: 'var(--green)' }] },
+          { name: 'Rate Limiting & CORS', desc: 'Redis-backed per-client rate limiting. CORS configured for Angular dashboard and mobile origins. DDoS protection at gateway level.', tags: [{ t: 'Redis 7', c: 'var(--rose)' }, { t: 'Bucket4j', c: 'var(--text-muted)' }] },
+        ]
+      },
+      {
+        id: 'platform', name: 'Layer 5 — Platform Foundation (rpms-platform)', desc: 'Shared libraries, event schemas, cross-cutting services — the foundation all modules depend on',
+        color: '#a78bfa', bg: 'rgba(167,139,250,.06)', icon: '🧱', tech: 'rpms-common · rpms-security · Avro Schemas · Notification · Reporting',
+        components: [
+          { name: 'rpms-common (Java Library)', desc: 'Framework-agnostic shared code: DTOs (PlantationRef, WorkerRef, FieldRef as Java 21 records), exception hierarchy, Jakarta validation, date/spatial utilities, Kafka topic constants. Pure Java — no Spring/CDI annotations.', tags: [{ t: 'Java 21 Records', c: 'var(--violet)' }, { t: 'Jakarta Validation', c: 'var(--blue)' }] },
+          { name: 'rpms-security (Dual Framework)', desc: 'Keycloak JWT integration with sub-packages for Spring Boot (SpringSecurityConfig) and Quarkus (QuarkusSecurityConfig). RpmsUserPrincipal, RpmsRole enum, RpmsPermission enum.', tags: [{ t: 'Spring Security', c: 'var(--green)' }, { t: 'Quarkus OIDC', c: 'var(--cyan)' }] },
+          { name: 'rpms-spatial (PostGIS Helpers)', desc: 'GeoJSON converter, SRID 4326 point factory, bounding box queries, spatial query helpers for ST_Within/ST_DWithin. Used by all modules with geometry columns.', tags: [{ t: 'PostGIS', c: 'var(--green)' }, { t: 'GeoJSON', c: 'var(--blue)' }] },
+          { name: 'Event Schemas (Avro)', desc: 'Avro schemas for all Kafka domain events, organized by module. Topic registry YAML with partition keys, retention policies, and consumer lists. BACKWARD compatibility enforced by Schema Registry.', tags: [{ t: 'Apache Avro', c: 'var(--amber)' }, { t: 'Schema Registry', c: 'var(--green)' }] },
+          { name: 'Notification Service', desc: 'Cross-cutting push notifications (Firebase FCM), SMS alerts (Twilio), email. Consumes events: expiring documents, weather alerts, task assignments, leave approvals, inspection failures.', tags: [{ t: 'Spring Boot', c: 'var(--green)' }, { t: 'FCM + Twilio', c: 'var(--orange)' }] },
+          { name: 'Reporting & Analytics Service', desc: 'Cross-cutting pre-aggregated views, OLAP queries, export to Excel/PDF. Scheduled jobs for daily/monthly rollups. JasperReports integration.', tags: [{ t: 'Spring Boot', c: 'var(--green)' }, { t: 'JasperReports', c: 'var(--amber)' }] },
+        ]
+      },
+      {
+        id: 'modules', name: 'Layer 6 — Module Services (one repo each)', desc: 'Independently deployable vertical slices — backend + Angular lib + KMP feature + Flyway migrations',
+        color: '#2dd4bf', bg: 'rgba(45,212,191,.06)', icon: '🧩', tech: 'Spring Boot 3 (CRUD) · Quarkus (High-Throughput) · MapStruct · Flyway',
+        components: [
+          { name: 'Plantation Service (Spring Boot)', desc: 'Module 1 — rpms-mod-plantation. Plantation, division, field CRUD + spatial queries via PostGIS. Stable domain, low traffic. Flyway V1_xxx migrations. Owns: plantation, division, field, nursery, clone_master.', tags: [{ t: 'Spring Boot 3', c: 'var(--green)' }, { t: 'PostGIS', c: 'var(--teal)' }] },
+          { name: 'Tree Service (Spring Boot)', desc: 'Module 2 — rpms-mod-tree. Tree lifecycle, growth measurements, disease tracking, mortality. High read volume (NFC scan → Redis cache). Flyway V2_xxx. Owns: tree, tree_tag, tree_health_inspection.', tags: [{ t: 'Spring Boot 3', c: 'var(--green)' }, { t: 'Redis Cache', c: 'var(--rose)' }] },
+          { name: 'Tapping Service (Quarkus)', desc: 'Module 3 — rpms-mod-tapping. Tapping tasks, latex collection, quality testing. High write volume — IoT telemetry ingestion during peak hours (04:30–09:00). Flyway V3_xxx. Scales 1→5 replicas via HPA.', tags: [{ t: 'Quarkus', c: 'var(--cyan)' }, { t: 'Reactive', c: 'var(--green)' }] },
+          { name: 'Workforce Service (Spring Boot)', desc: 'Module 4 — rpms-mod-workforce. Worker CRUD, skills, gangs, leave, training, pay structures, safety incidents. Hub module — worker_id referenced by M3, M5, M6. Keycloak user provisioning. Flyway V4_xxx.', tags: [{ t: 'Spring Boot 3', c: 'var(--green)' }, { t: 'Keycloak Admin', c: 'var(--blue)' }] },
+          { name: 'Activity Service (Quarkus)', desc: 'Module 5 — rpms-mod-activity. Daily work plans, activities, material usage, photo evidence, inspections. High write throughput from field workers. S3 photo upload pipeline. Flyway V5_xxx.', tags: [{ t: 'Quarkus', c: 'var(--cyan)' }, { t: 'S3 / MinIO', c: 'var(--amber)' }] },
+          { name: 'Attendance Service (Quarkus)', desc: 'Module 6 — rpms-mod-attendance. Scan log ingestion, daily attendance derivation, regularization, overtime, monthly summaries. Highest event rate — biometric/NFC/GPS scan flood. Flyway V6_xxx.', tags: [{ t: 'Quarkus', c: 'var(--cyan)' }, { t: 'Kafka Streams', c: 'var(--green)' }] },
+        ]
+      },
+      {
+        id: 'integration', name: 'Layer 7 — Integration & Event Backbone', desc: 'Async messaging, saga orchestration, CDC, and external integrations',
+        color: '#fbbf24', bg: 'rgba(251,191,36,.06)', icon: '🔄', tech: 'Apache Kafka · Apache Camel · Debezium · Temporal.io',
+        components: [
+          { name: 'Event Bus (Apache Kafka)', desc: 'Central nervous system. Domain events: TreeStatusChanged, TappingTaskCompleted, AttendanceScanReceived, LatexCollected, WorkerStatusChanged. Partitioned by entity key for ordering. Avro serialization via Schema Registry.', tags: [{ t: 'Kafka 3.x', c: 'var(--amber)' }, { t: 'Schema Registry', c: 'var(--green)' }] },
+          { name: 'Integration Router (Apache Camel)', desc: 'Cloud-side Camel routes for external integrations — weather APIs, payment gateways, government reporting, ERP sync. Protocol bridges and data transformation.', tags: [{ t: 'Apache Camel 4', c: 'var(--orange)' }, { t: '100+ Connectors', c: 'var(--blue)' }] },
+          { name: 'CDC Pipeline (Debezium)', desc: 'Change Data Capture from PostgreSQL WAL. Streams database changes as Kafka events for real-time dashboards, search index updates, and audit trails without polling.', tags: [{ t: 'Debezium', c: 'var(--amber)' }, { t: 'PG WAL', c: 'var(--green)' }] },
+          { name: 'Saga Orchestrator (Temporal.io)', desc: 'Long-running transaction coordination across modules. Example: "Worker Transfer" saga spans Workforce → Attendance → Tapping reassignment with compensations on failure.', tags: [{ t: 'Temporal.io', c: 'var(--violet)' }, { t: 'Java SDK', c: 'var(--blue)' }] },
+        ]
+      },
+      {
+        id: 'ai', name: 'Layer 8 — AI/ML & Blockchain Services', desc: 'Intelligence layer and trust anchor',
+        color: '#fb7185', bg: 'rgba(251,113,133,.06)', icon: '🧠', tech: 'Python · PyTorch · LangChain · Hyperledger Fabric',
+        components: [
+          { name: 'Gen AI Copilot (LangChain + RAG)', desc: 'Natural language querying: "Which RRIM 600 blocks have declining yield?" RAG over plantation database + documents using pgvector embeddings. Powered by Claude API.', tags: [{ t: 'LangChain', c: 'var(--rose)' }, { t: 'Claude API', c: 'var(--violet)' }, { t: 'pgvector', c: 'var(--green)' }] },
+          { name: 'Computer Vision Service', desc: 'Photo analysis — tapping cut quality scoring, leaf disease detection, bark condition assessment. Mobile captures photo → FastAPI service returns JSONB result.', tags: [{ t: 'PyTorch', c: 'var(--rose)' }, { t: 'ONNX', c: 'var(--orange)' }, { t: 'FastAPI', c: 'var(--cyan)' }] },
+          { name: 'Yield Prediction Engine', desc: 'Time-series forecasting per field based on weather, clone, tree age, tapping system, and historical patterns. Daily/weekly predictions.', tags: [{ t: 'Prophet', c: 'var(--rose)' }, { t: 'XGBoost', c: 'var(--green)' }, { t: 'MLflow', c: 'var(--amber)' }] },
+          { name: 'Anomaly Detection', desc: 'Streaming analysis on Kafka events. Detects attendance fraud (buddy punching), yield anomalies, material usage spikes, unusual absence patterns.', tags: [{ t: 'Kafka Streams', c: 'var(--amber)' }, { t: 'Isolation Forest', c: 'var(--rose)' }] },
+          { name: 'Blockchain Anchor (Hyperledger)', desc: 'Private Hyperledger Fabric network. Anchors hashes of critical records: yield provenance, attendance logs, tree status changes. Smart contracts for sustainability certification.', tags: [{ t: 'Hyperledger Fabric', c: 'var(--blue)' }, { t: 'Chaincode (Go)', c: 'var(--cyan)' }] },
+        ]
+      },
+      {
+        id: 'data', name: 'Layer 9 — Shared Database & Storage', desc: 'Single PostgreSQL instance with full referential integrity — the foundation of the modular architecture',
+        color: '#2dd4bf', bg: 'rgba(45,212,191,.06)', icon: '💾', tech: 'PostgreSQL 16 · PostGIS · TimescaleDB · Redis · Elasticsearch · MinIO',
+        components: [
+          { name: 'PostgreSQL + PostGIS (Shared Primary)', desc: 'Single database shared by all 6 module services. 60 core tables + 39 lookups + 25 cross-module views + 30 triggers. Full referential integrity with cross-module foreign keys. Each module has WRITE access to its tables, READ access to all.', tags: [{ t: 'PostgreSQL 16', c: 'var(--teal)' }, { t: 'PostGIS 3.4', c: 'var(--green)' }] },
+          { name: 'TimescaleDB (IoT Telemetry)', desc: 'Time-series extension on PostgreSQL for iot_sensor_reading hypertable. Automatic range partitioning by month, compression, and continuous aggregates.', tags: [{ t: 'TimescaleDB', c: 'var(--teal)' }, { t: 'Hypertables', c: 'var(--green)' }] },
+          { name: 'Redis (Cache & Sessions)', desc: 'Tree profile cache for NFC scan → instant lookup. Session store, rate limiting counters, real-time dashboard pub/sub via Redis Streams.', tags: [{ t: 'Redis 7', c: 'var(--rose)' }, { t: 'Redis Streams', c: 'var(--amber)' }] },
+          { name: 'Elasticsearch (Search & Logs)', desc: 'Full-text search across workers, trees, fields. Centralized log aggregation from all module services. Kibana for operational dashboards.', tags: [{ t: 'Elasticsearch 8', c: 'var(--amber)' }, { t: 'Kibana', c: 'var(--green)' }] },
+          { name: 'MinIO / S3 (Object Store)', desc: 'Photos (activity evidence, tapping cuts), documents (worker certificates), AI model artifacts, report exports. S3-compatible API for cloud portability.', tags: [{ t: 'MinIO', c: 'var(--teal)' }, { t: 'S3 API', c: 'var(--orange)' }] },
+          { name: 'pgvector (AI Embeddings)', desc: 'Vector extension on PostgreSQL for RAG. Stores embeddings of plantation SOPs, historical reports, and domain documents for Gen AI copilot natural language querying.', tags: [{ t: 'pgvector', c: 'var(--teal)' }, { t: 'HNSW Index', c: 'var(--violet)' }] },
+        ]
+      },
+      {
+        id: 'cicd', name: 'Layer 10 — CI/CD & Observability', desc: 'Per-module independent pipelines, GitOps deployment, and full-stack observability',
+        color: '#a3e635', bg: 'rgba(163,230,53,.06)', icon: '🚀', tech: 'GitHub Actions · ArgoCD · Terraform · OpenTelemetry · Grafana',
+        components: [
+          { name: 'Per-Module CI Pipelines', desc: 'Each rpms-mod-* repo has its own GitHub Actions workflow: parallel build (backend + Angular lib + KMP feature), quality gates (OpenAPI lint, Avro schema check, Pact contracts), Docker push, npm/Maven publish.', tags: [{ t: 'GitHub Actions', c: 'var(--green)' }, { t: 'Testcontainers', c: 'var(--blue)' }] },
+          { name: 'GitOps Deployment (ArgoCD)', desc: 'Each module\'s K8s manifests synced by ArgoCD. Module deploy triggers shell rebuild via webhook dispatch. Staging environment with approval gates.', tags: [{ t: 'ArgoCD', c: 'var(--green)' }, { t: 'Kustomize', c: 'var(--blue)' }] },
+          { name: 'Infrastructure as Code', desc: 'Terraform modules for EKS/GKE cluster, RDS PostgreSQL, MSK Kafka, ElastiCache Redis, VPC networking. Environment-specific configs (dev/staging/prod).', tags: [{ t: 'Terraform', c: 'var(--violet)' }, { t: 'Kubernetes', c: 'var(--blue)' }] },
+          { name: 'Observability Stack', desc: 'OpenTelemetry SDK in all services (traces, metrics, logs). Grafana dashboards, Prometheus metrics, Loki log aggregation, Tempo distributed tracing. Per-module service dashboards.', tags: [{ t: 'OpenTelemetry', c: 'var(--amber)' }, { t: 'Grafana Stack', c: 'var(--green)' }] },
+        ]
+      },
+    ];
+
+    // ══════════════════════════════════════════
+    // RENDER: Layer Details (Tab 2)
+    // ══════════════════════════════════════════
+    const grid = document.getElementById('layersGrid');
+    layers.forEach(l => {
+      const div = document.createElement('div'); div.className = 'layer'; div.id = 'layer-' + l.id;
+      div.innerHTML = `
+    <div class="layer-header" onclick="this.parentElement.classList.toggle('open')">
+      <div class="layer-title">
+        <div class="layer-icon" style="background:${l.bg};border:1px solid ${l.color}40">${l.icon}</div>
+        <div><div class="layer-name" style="color:${l.color}">${l.name}</div><div class="layer-desc">${l.desc}</div></div>
       </div>
-      <div class="layer-body"><div class="comp-grid">${comps}</div></div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div class="layer-tech">${l.tech}</div>
+        <div class="layer-toggle">▼</div>
+      </div>
+    </div>
+    <div class="layer-body">
+      <div class="comp-grid">${l.components.map(c => `
+        <div class="comp">
+          <div class="comp-name" style="color:${l.color}">${c.name}</div>
+          <div class="comp-desc">${c.desc}</div>
+          <div class="comp-tech-tags">${c.tags.map(t => `<span class="comp-tag" style="background:${t.c}15;color:${t.c}">${t.t}</span>`).join('')}</div>
+        </div>`).join('')}
+      </div>
     </div>`;
-});
-
-// ══════════════════════════════════════════
-// RENDER: Technology Decisions
-// ══════════════════════════════════════════
-const decisions = [
-  {area:'Backend Framework',choice:'Spring Boot 3 + Quarkus (hybrid)',reason:'Spring Boot for stable CRUD-heavy services (Plantation, Tree, Workforce) with its mature ecosystem. Quarkus for high-throughput event-processing services (Tapping, Activity, Attendance) — 10× faster startup, 50% less memory in containers. Both run on Java 21 with virtual threads.'},
-  {area:'Integration',choice:'Apache Camel 4',reason:'Your requirement. 300+ connectors, runs embedded in Spring Boot or Quarkus. Handles MQTT→Kafka bridging at the edge, weather API integration, ERP sync, and government reporting in the cloud. DSL-based routes are maintainable by non-specialists.'},
-  {area:'Event Backbone',choice:'Apache Kafka + Schema Registry',reason:'Domain events are the backbone — every module publishes events consumed by others. Kafka provides durability, replay, and exactly-once semantics. Schema Registry (Avro) ensures contract compatibility as modules evolve independently across future phases.'},
-  {area:'Mobile',choice:'Kotlin Multiplatform + Jetpack Compose',reason:'KMP shares business logic (domain models, API client via Ktor, offline sync via SQLDelight, validation rules) across platforms while giving full native Android access — critical for BLE (smart knives, scales), NFC (tree tags, worker badges), CameraX (photo analysis), ForegroundService (6-hour GPS tracking), and biometric SDK integration. Kotlin aligns with the Java 21 backend stack, enabling code/knowledge sharing between teams. Jetpack Compose for Android UI today; iOS via SwiftUI + shared KMP module when needed.'},
-  {area:'Web Dashboard',choice:'Angular 18 + ngx-charts + ngx-mapbox-gl',reason:'Angular provides built-in structure (modules, services, DI, routing guards, interceptors) essential for a 6+ module enterprise system. Reactive Forms handle the 20+ field worker registration, attendance regularization, and material logging forms with superior validation. RxJS — native to Angular — manages real-time WebSocket streams (tapper locations, IoT sensors, live attendance) naturally via Observables. TypeScript-first architecture ensures strong typing across 60+ domain entities. ngx-mapbox-gl for spatial visualization and ngx-charts for yield/attendance analytics.'},
-  {area:'API Gateway',choice:'Spring Cloud Gateway',reason:'Native Spring ecosystem integration. Reactive (Netty-based) for high throughput. Built-in rate limiting, circuit breakers, request transformation. Pairs naturally with Keycloak for JWT validation at the edge.'},
-  {area:'Identity & Auth',choice:'Keycloak',reason:'Open-source OAuth2/OIDC provider. Supports multi-tenancy (one realm per plantation company), role hierarchies (TAPPER < SUPERVISOR < MANAGER < ADMIN), social login for managers, and offline token refresh for field workers with poor connectivity.'},
-  {area:'Database',choice:'PostgreSQL 16 + PostGIS + TimescaleDB',reason:'PostGIS for spatial queries (field boundaries, geofence, GPS routes). TimescaleDB for IoT time-series data — same PostgreSQL wire protocol, so no separate DB to manage. pgvector for AI embeddings. Proven at scale, open-source, rich ecosystem.'},
-  {area:'Cache',choice:'Redis 7',reason:'Sub-millisecond tree profile lookups during NFC scans (critical path). Session storage for mobile tokens. Rate limiting counters. Redis Streams as lightweight pub/sub for real-time dashboard updates.'},
-  {area:'Object Storage',choice:'MinIO (self-hosted) → S3 (cloud)',reason:'S3-compatible API for photos, documents, certificates, AI models. Start with MinIO on-prem or in K8s, migrate to AWS S3/GCS seamlessly. Lifecycle policies for photo archival (move to cold storage after 1 year).'},
-  {area:'AI/ML',choice:'Python (FastAPI) + PyTorch + LangChain',reason:'Python for ML model serving (photo analysis, yield prediction). FastAPI for low-latency inference endpoints. LangChain + Claude API for the Gen AI copilot. MLflow for model versioning and experiment tracking.'},
-  {area:'Blockchain',choice:'Hyperledger Fabric (private)',reason:'Private/permissioned — no cryptocurrency overhead. Suitable for supply chain provenance (latex from field → factory) and sustainability certification. Smart contracts in Go. Only critical records are anchored — not every transaction.'},
-  {area:'Orchestration',choice:'Temporal.io',reason:'Saga pattern for cross-service transactions (worker transfer, field reassignment, replanting workflow). Durable execution — survives service restarts. Java SDK integrates natively with Spring Boot and Quarkus.'},
-  {area:'Observability',choice:'OpenTelemetry + Grafana Stack',reason:'OpenTelemetry SDK in all services for traces, metrics, logs. Grafana for dashboards, Loki for logs, Tempo for distributed tracing, Prometheus for metrics. Single pane of glass for ops.'},
-  {area:'CI/CD & Infra',choice:'Kubernetes (EKS/GKE) + ArgoCD + Terraform',reason:'K8s for container orchestration with auto-scaling. ArgoCD for GitOps deployment. Terraform for infrastructure-as-code. K3s at plantation edge for lightweight local processing.'},
-  {area:'CDC / Data Sync',choice:'Debezium',reason:'Captures PostgreSQL WAL changes as Kafka events — enables real-time analytics, search index updates, and cross-service data sync without polling or dual-writes.'},
-];
-const dt = document.getElementById('decisionTable');
-dt.innerHTML = `<thead><tr><th>Area</th><th>Choice</th><th>Rationale</th></tr></thead>
-<tbody>${decisions.map(d => `<tr><td class="dt-choice" style="white-space:nowrap">${d.area}</td><td class="dt-choice" style="color:var(--blue)">${d.choice}</td><td class="dt-reason">${d.reason}</td></tr>`).join('')}</tbody>`;
-
-// ══════════════════════════════════════════
-// RENDER: Architecture Diagram (SVG)
-// ══════════════════════════════════════════
-function renderArch(){
-  const W=1240,H=920;
-  let svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">
-  <defs>
-    <marker id="arr" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#60a5fa" opacity=".6"/></marker>
-    <filter id="glow"><feGaussianBlur stdDeviation="2" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-  </defs>`;
-
-  // Layer bars
-  const bars=[
-    {y:10,h:100,label:'EDGE / FIELD DEVICES',color:'#22d3ee',items:['Smart Knife','GPS Band','NFC Tags','Rain Gauge','AR/MR','Digital Scale']},
-    {y:130,h:70,label:'EDGE GATEWAY',color:'#4ade80',items:['MQTT Broker','Camel Router','SQLite Cache','Biometric Unit']},
-    {y:220,h:80,label:'MOBILE & WEB CLIENTS',color:'#fb923c',items:['Tapper App (KMP)','Supervisor App (KMP)','Mgmt Dashboard (Angular)','PWA']},
-    {y:320,h:60,label:'API GATEWAY & SECURITY',color:'#60a5fa',items:['Spring Cloud Gateway','Keycloak (OAuth2/OIDC)','Rate Limiting','API Docs']},
-    {y:400,h:140,label:'MICROSERVICES',color:'#a78bfa',items:['Plantation Svc','Tree Svc','Tapping Svc','Workforce Svc','Activity Svc','Attendance Svc','Notification','Reporting']},
-    {y:560,h:80,label:'INTEGRATION & EVENTS',color:'#fbbf24',items:['Apache Kafka','Apache Camel','Debezium CDC','Temporal Sagas']},
-    {y:660,h:100,label:'AI / ML & BLOCKCHAIN',color:'#fb7185',items:['Gen AI Copilot','Vision (Photo)','Yield Prediction','Anomaly Detection','Hyperledger Fabric']},
-    {y:780,h:100,label:'DATA & STORAGE',color:'#2dd4bf',items:['PostgreSQL + PostGIS','TimescaleDB','Redis Cache','Elasticsearch','MinIO/S3','pgvector']},
-  ];
-
-  bars.forEach(b=>{
-    svg+=`<rect x="30" y="${b.y}" width="${W-60}" height="${b.h}" rx="10" fill="${b.color}" fill-opacity=".04" stroke="${b.color}" stroke-width="1.2" opacity=".4"/>`;
-    svg+=`<text x="50" y="${b.y+20}" fill="${b.color}" font-family="JetBrains Mono,monospace" font-size="10" font-weight="600" letter-spacing="1.5" opacity=".8">${b.label}</text>`;
-    const itemW=Math.min(160,(W-120)/b.items.length);
-    const startX=60;
-    b.items.forEach((item,i)=>{
-      const ix=startX+i*(itemW+12);
-      const iy=b.y+32;
-      const ih=b.h-44;
-      svg+=`<rect x="${ix}" y="${iy}" width="${itemW}" height="${ih}" rx="6" fill="${b.color}" fill-opacity=".08" stroke="${b.color}" stroke-width=".8" opacity=".6"/>`;
-      svg+=`<text x="${ix+itemW/2}" y="${iy+ih/2+4}" text-anchor="middle" fill="${b.color}" font-family="JetBrains Mono,monospace" font-size="9.5" font-weight="500" opacity=".9">${item}</text>`;
+      grid.appendChild(div);
     });
-  });
 
-  // Flow arrows between layers
-  const arrows=[[110,100,220],[110,200,320],[110,300,400],[110,460,560],[110,640,660],[110,760,780],
-    [500,100,220],[500,200,320],[500,300,400],[500,460,560],[500,640,660],[500,760,780],
-    [900,100,220],[900,200,320],[900,300,400],[900,460,560],[900,640,660],[900,760,780]];
-  // Vertical connectors
-  for(let x of [200,600,1000]){
-    svg+=`<line x1="${x}" y1="110" x2="${x}" y2="870" stroke="#60a5fa" stroke-width=".6" opacity=".12" stroke-dasharray="4,6"/>`;
-  }
-  // Bidirectional arrows between adjacent layers
-  [[65,130],[65,220],[65,320],[65,400],[65,540],[65,660],[65,780]].forEach(([y1,y2])=>{
-    const mx=35;
-    svg+=`<line x1="${mx}" y1="${y1}" x2="${mx}" y2="${y2}" stroke="#60a5fa" stroke-width="1.2" opacity=".25" marker-end="url(#arr)"/>`;
-  });
+    // ══════════════════════════════════════════
+    // RENDER: Decision Table (Tab 3)
+    // ══════════════════════════════════════════
+    const decisions = [
+      { area: 'Architecture', choice: 'Modular Pluggable — Per-Module Repos + Shared DB', reason: 'Each module is an independent repo (backend + Angular lib + KMP feature + Flyway). Thin shell compositors lazy-load modules. Shared PostgreSQL preserves referential integrity, cross-module JOINs, 30 triggers, 25 views.', adr: 'ADR-006' },
+      { area: 'Database', choice: 'PostgreSQL 16 + PostGIS + TimescaleDB + pgvector', reason: 'Single shared database for all modules. PostGIS for 15+ geometry columns, TimescaleDB for IoT time-series, pgvector for RAG embeddings. Single writer per table, many readers. Schema permissions per module.', adr: 'ADR-001' },
+      { area: 'Backend (CRUD)', choice: 'Spring Boot 3 + Java 21', reason: 'Plantation, Tree, Workforce services. Mature PostGIS support via Hibernate Spatial, Spring Security Keycloak integration, Spring Cache Redis abstraction. 2–4s startup, ~300MB memory.', adr: 'ADR-002' },
+      { area: 'Backend (Burst)', choice: 'Quarkus + Java 21', reason: 'Tapping, Activity, Attendance services. <1s startup, ~120MB memory. Scales 1→5 replicas in seconds during peak tapping hours (04:30–09:00). SmallRye Reactive Messaging for Kafka.', adr: 'ADR-002' },
+      { area: 'Event Backbone', choice: 'Apache Kafka + Schema Registry (Avro)', reason: 'Domain events, CDC via Debezium, IoT telemetry streaming, saga coordination. Durable replay, partitioned ordering, exactly-once semantics. BACKWARD compatibility enforced on schemas.', adr: 'ADR-003' },
+      { area: 'Web Dashboard', choice: 'Angular 18', reason: 'Lazy-loaded module libraries (@rpms/mod-*). Reactive Forms for complex data entry. RxJS for real-time WebSocket streams. TypeScript-first with 60+ domain entity interfaces. OnPush change detection.', adr: 'ADR-004' },
+      { area: 'Mobile', choice: 'Kotlin Multiplatform + Jetpack Compose', reason: 'Full native Android API access: BLE (smart knives), NFC (tree tags — 300-500 scans/shift), CameraX (AR overlay), ForegroundService (6hr GPS tracking). Shared KMP module for domain logic. iOS via SwiftUI later.', adr: 'ADR-005' },
+      { area: 'Shell Compositors', choice: 'Angular Shell (Web) + Compose Navigation Shell (Android)', reason: 'Zero business logic. Web: lazy-loads @rpms/mod-* via dynamic import(). Android: composes module NavGraphs via Gradle deps. Plugin model — adding a module = 3 lines per shell.', adr: 'ADR-006' },
+      { area: 'Shared Libraries', choice: 'rpms-common + rpms-security + rpms-spatial', reason: 'Framework-agnostic Java 21 records (DTOs), Jakarta validation, exception hierarchy. rpms-security has dual Spring/Quarkus sub-packages. Published to GitHub Packages (Maven). All modules depend on these.', adr: 'ADR-002' },
+      { area: 'Integration', choice: 'Apache Camel 4', reason: 'Edge: MQTT→Kafka bridging per plantation. Cloud: weather APIs, payment gateways, government reporting, ERP sync. 100+ protocol connectors. Runs both at edge (K3s) and cloud (K8s).', adr: '—' },
+      { area: 'Saga Orchestration', choice: 'Temporal.io', reason: 'Durable workflow execution for cross-module transactions. Worker transfer saga, monthly attendance finalization, bulk tree status updates. Java SDK, built-in retry and compensation.', adr: '—' },
+      { area: 'Cache', choice: 'Redis 7', reason: 'Tree profile cache for NFC scan latency (<50ms). Session store, rate limiting counters, real-time dashboard pub/sub via Redis Streams.', adr: '—' },
+      { area: 'AI/ML', choice: 'Python + FastAPI + PyTorch + LangChain', reason: 'Computer vision (tapping quality, disease detection), yield prediction (Prophet/XGBoost), anomaly detection (Isolation Forest), Gen AI copilot (RAG over pgvector). Separate GPU-enabled pods.', adr: '—' },
+      { area: 'Blockchain', choice: 'Hyperledger Fabric (Private)', reason: 'Selective anchoring — only critical provenance records: yield per collection, attendance logs, tree status changes. Smart contracts for sustainability certification. Not on every row.', adr: '—' },
+      { area: 'Migrations', choice: 'Flyway — Module-Prefixed Versions', reason: 'V0_xxx (platform: extensions, lookups, views), V1_xxx–V6_xxx (one prefix per module). Each module repo owns its prefix range. Natural sort order respects dependencies. No coordination needed.', adr: 'ADR-006' },
+      { area: 'CI/CD', choice: 'GitHub Actions + ArgoCD + Terraform', reason: 'Per-module pipelines: parallel build (backend + Angular + KMP), quality gates, Docker push, ArgoCD sync. Module deploy triggers shell rebuild via webhook. Terraform for infrastructure.', adr: '—' },
+      { area: 'Observability', choice: 'OpenTelemetry + Grafana + Prometheus + Loki + Tempo', reason: 'OTel SDK in all services. Per-module Grafana dashboards. Prometheus for metrics, Loki for logs, Tempo for distributed traces. Single pane of glass across all modules.', adr: '—' },
+      { area: 'Edge Computing', choice: 'K3s + Mosquitto + Camel', reason: 'Lightweight Kubernetes at each plantation. MQTT for IoT ingestion, Camel for protocol bridging, SQLite for offline cache. Store-and-forward sync to cloud Kafka.', adr: '—' },
+    ];
+    const dt = document.getElementById('decisionTable');
+    dt.innerHTML = `<thead><tr><th>Area</th><th>Choice</th><th>Rationale</th></tr></thead>
+<tbody>${decisions.map(d => `<tr><td class="dt-choice" style="white-space:nowrap">${d.area}${d.adr !== '—' ? `<br><span class="dt-adr">${d.adr}</span>` : ''}</td><td class="dt-choice" style="color:var(--blue)">${d.choice}</td><td class="dt-reason">${d.reason}</td></tr>`).join('')}</tbody>`;
 
-  // Cross-cutting sidebar: Observability
-  svg+=`<rect x="${W-170}" y="320" width="140" height="560" rx="10" fill="#ef4444" fill-opacity=".03" stroke="#ef4444" stroke-width="1" stroke-dasharray="6,4" opacity=".3"/>`;
-  svg+=`<text x="${W-100}" y="345" text-anchor="middle" fill="#ef4444" font-family="JetBrains Mono,monospace" font-size="9" font-weight="600" letter-spacing="1" opacity=".6">OBSERVABILITY</text>`;
-  ['OpenTelemetry','Grafana','Prometheus','Loki','Tempo'].forEach((t,i)=>{
-    svg+=`<text x="${W-100}" y="${375+i*22}" text-anchor="middle" fill="#ef4444" font-family="JetBrains Mono,monospace" font-size="8.5" opacity=".5">${t}</text>`;
-  });
+    // ══════════════════════════════════════════
+    // RENDER: Architecture Diagram (Tab 1 — SVG)
+    // ══════════════════════════════════════════
+    function renderArch() {
+      const W = 1200, H = 960;
+      let s = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">
+  <defs><marker id="arr" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#60a5fa" opacity=".6"/></marker></defs>`;
 
-  // Cross-cutting sidebar: CI/CD
-  svg+=`<rect x="${W-170}" y="130" width="140" height="170" rx="10" fill="#a3e635" fill-opacity=".03" stroke="#a3e635" stroke-width="1" stroke-dasharray="6,4" opacity=".3"/>`;
-  svg+=`<text x="${W-100}" y="155" text-anchor="middle" fill="#a3e635" font-family="JetBrains Mono,monospace" font-size="9" font-weight="600" letter-spacing="1" opacity=".6">CI/CD & INFRA</text>`;
-  ['Kubernetes','ArgoCD','Terraform','GitHub Actions','K3s (Edge)'].forEach((t,i)=>{
-    svg+=`<text x="${W-100}" y="${180+i*22}" text-anchor="middle" fill="#a3e635" font-family="JetBrains Mono,monospace" font-size="8.5" opacity=".5">${t}</text>`;
-  });
+      const bars = [
+        { y: 10, h: 60, label: 'EDGE / FIELD DEVICES', color: '#22d3ee', items: ['Smart Knife', 'GPS Band', 'NFC Tags', 'Rain Gauge', 'AR/MR', 'Digital Scale'] },
+        { y: 85, h: 55, label: 'EDGE GATEWAY (per plantation)', color: '#4ade80', items: ['Mosquitto MQTT', 'Camel Router', 'SQLite Cache', 'Biometric Unit'] },
+        { y: 155, h: 70, label: 'SHELL COMPOSITORS (thin — zero business logic)', color: '#fb923c', items: ['rpms-shell-web (Angular)', 'rpms-shell-mobile (Compose)', '@rpms/shared', 'shared-kmp'] },
+        { y: 240, h: 50, label: 'API GATEWAY & SECURITY (rpms-platform)', color: '#60a5fa', items: ['Spring Cloud Gateway', 'Keycloak (OAuth2/OIDC)', 'Rate Limiting', 'CORS'] },
+        { y: 305, h: 60, label: 'PLATFORM FOUNDATION (rpms-platform)', color: '#a78bfa', items: ['rpms-common', 'rpms-security', 'rpms-spatial', 'Avro Schemas', 'Notification Svc', 'Reporting Svc'] },
+        { y: 385, h: 130, label: 'MODULE SERVICES (one repo each — independent CI/CD)', color: '#2dd4bf', items: [] },
+        { y: 535, h: 60, label: 'INTEGRATION & EVENT BACKBONE', color: '#fbbf24', items: ['Apache Kafka', 'Apache Camel', 'Debezium CDC', 'Temporal.io Sagas'] },
+        { y: 615, h: 75, label: 'AI / ML & BLOCKCHAIN', color: '#fb7185', items: ['Gen AI Copilot', 'Vision (PyTorch)', 'Yield Prediction', 'Anomaly Detection', 'Hyperledger Fabric'] },
+        { y: 710, h: 70, label: 'SHARED DATABASE & STORAGE', color: '#2dd4bf', items: ['PostgreSQL+PostGIS', 'TimescaleDB', 'Redis 7', 'Elasticsearch', 'MinIO/S3', 'pgvector'] },
+      ];
 
-  svg+=`</svg>`;
-  document.getElementById('archDiagram').innerHTML=svg;
-}
+      bars.forEach(b => {
+        s += `<rect x="30" y="${b.y}" width="${W - 60}" height="${b.h}" rx="10" fill="${b.color}" fill-opacity=".04" stroke="${b.color}" stroke-width="1.2" opacity=".4"/>`;
+        s += `<text x="50" y="${b.y + 18}" fill="${b.color}" font-family="JetBrains Mono,monospace" font-size="10" font-weight="600" letter-spacing="1.5" opacity=".8">${b.label}</text>`;
+        if (b.items.length) {
+          const itemW = Math.min(160, (W - 120) / b.items.length);
+          b.items.forEach((item, i) => {
+            const ix = 60 + i * (itemW + 10); const iy = b.y + 28; const ih = b.h - 36;
+            s += `<rect x="${ix}" y="${iy}" width="${itemW}" height="${ih}" rx="6" fill="${b.color}" fill-opacity=".08" stroke="${b.color}" stroke-width=".8" opacity=".6"/>`;
+            s += `<text x="${ix + itemW / 2}" y="${iy + ih / 2 + 4}" text-anchor="middle" fill="${b.color}" font-family="JetBrains Mono,monospace" font-size="9" font-weight="500" opacity=".9">${item}</text>`;
+          });
+        }
+      });
 
-// ══════════════════════════════════════════
-// RENDER: Deployment Diagram
-// ══════════════════════════════════════════
-function renderDeploy(){
-  const W=1200,H=640;
-  let svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">`;
+      // Module services — special 2-row grid
+      const mods = [
+        { name: 'Plantation Svc', fw: 'Spring Boot', color: '#6DB33F', x: 60, y: 405 },
+        { name: 'Tree Svc', fw: 'Spring Boot', color: '#6DB33F', x: 250, y: 405 },
+        { name: 'Tapping Svc', fw: 'Quarkus', color: '#4695EB', x: 440, y: 405 },
+        { name: 'Workforce Svc', fw: 'Spring Boot', color: '#6DB33F', x: 60, y: 460 },
+        { name: 'Activity Svc', fw: 'Quarkus', color: '#4695EB', x: 250, y: 460 },
+        { name: 'Attendance Svc', fw: 'Quarkus', color: '#4695EB', x: 440, y: 460 },
+      ];
+      mods.forEach(m => {
+        s += `<rect x="${m.x}" y="${m.y}" width="170" height="42" rx="6" fill="${m.color}" fill-opacity=".1" stroke="${m.color}" stroke-width="1" opacity=".7"/>`;
+        s += `<text x="${m.x + 85}" y="${m.y + 17}" text-anchor="middle" fill="${m.color}" font-family="JetBrains Mono,monospace" font-size="10" font-weight="600">${m.name}</text>`;
+        s += `<text x="${m.x + 85}" y="${m.y + 32}" text-anchor="middle" fill="${m.color}" font-family="JetBrains Mono,monospace" font-size="8" opacity=".7">${m.fw}</text>`;
+      });
 
-  // Three zones
-  const zones=[
-    {x:30,w:280,label:'PLANTATION EDGE',sub:'Per-plantation K3s cluster',color:'#4ade80',items:['Mosquitto MQTT','Camel Edge Router','SQLite Sync','Biometric Unit','LoRa Gateway']},
-    {x:340,w:500,label:'CLOUD KUBERNETES CLUSTER',sub:'AWS EKS / GKE — Production',color:'#60a5fa',items:['API Gateway Pod','Plantation Svc Pod','Tree Svc Pod','Tapping Svc Pod (HPA)','Workforce Svc Pod','Activity Svc Pod (HPA)','Attendance Svc Pod (HPA)','Notification Svc Pod','Reporting Svc Pod','Kafka Cluster (3 brokers)','Camel Integration Pod','Temporal Server']},
-    {x:870,w:300,label:'AI / DATA ZONE',sub:'GPU nodes + Managed DB',color:'#fb7185',items:['PostgreSQL (Primary+Replica)','TimescaleDB','Redis Cluster','Elasticsearch','MinIO','AI Inference Pods (GPU)','ML Training Jobs','Hyperledger Peers']},
-  ];
+      // Module label: "Each module = own repo + CI/CD"
+      s += `<text x="${W - 200}" y="420" fill="#2dd4bf" font-family="JetBrains Mono,monospace" font-size="9" opacity=".6">Each module = own repo</text>`;
+      s += `<text x="${W - 200}" y="435" fill="#2dd4bf" font-family="JetBrains Mono,monospace" font-size="9" opacity=".6">Backend + Angular lib</text>`;
+      s += `<text x="${W - 200}" y="450" fill="#2dd4bf" font-family="JetBrains Mono,monospace" font-size="9" opacity=".6">+ KMP feature + Flyway</text>`;
+      s += `<text x="${W - 200}" y="465" fill="#2dd4bf" font-family="JetBrains Mono,monospace" font-size="9" opacity=".6">+ independent CI/CD</text>`;
 
-  zones.forEach(z=>{
-    svg+=`<rect x="${z.x}" y="30" width="${z.w}" height="580" rx="14" fill="${z.color}" fill-opacity=".03" stroke="${z.color}" stroke-width="1.5" opacity=".35"/>`;
-    svg+=`<text x="${z.x+z.w/2}" y="58" text-anchor="middle" fill="${z.color}" font-family="JetBrains Mono,monospace" font-size="11" font-weight="600" letter-spacing="1.5" opacity=".8">${z.label}</text>`;
-    svg+=`<text x="${z.x+z.w/2}" y="76" text-anchor="middle" fill="${z.color}" font-family="DM Sans,sans-serif" font-size="10" opacity=".5">${z.sub}</text>`;
-    const cols=z.w>400?3:1;
-    const iw=(z.w-40-(cols-1)*10)/cols;
-    z.items.forEach((item,i)=>{
-      const col=i%cols;const row=Math.floor(i/cols);
-      const ix=z.x+20+col*(iw+10);
-      const iy=92+row*44;
-      svg+=`<rect x="${ix}" y="${iy}" width="${iw}" height="34" rx="6" fill="${z.color}" fill-opacity=".07" stroke="${z.color}" stroke-width=".8" opacity=".5"/>`;
-      svg+=`<text x="${ix+iw/2}" y="${iy+21}" text-anchor="middle" fill="${z.color}" font-family="JetBrains Mono,monospace" font-size="9" opacity=".8">${item}</text>`;
-    });
-  });
+      // Vertical flow connectors
+      for (let x of [200, 600, 1000]) {
+        s += `<line x1="${x}" y1="70" x2="${x}" y2="780" stroke="#60a5fa" stroke-width=".6" opacity=".1" stroke-dasharray="4,6"/>`;
+      }
 
-  // Arrows between zones
-  svg+=`<line x1="310" y1="300" x2="340" y2="300" stroke="#fbbf24" stroke-width="2" opacity=".4" marker-end="url(#arr)"/>`;
-  svg+=`<text x="325" y="290" text-anchor="middle" fill="#fbbf24" font-family="JetBrains Mono,monospace" font-size="8" opacity=".5">VPN</text>`;
-  svg+=`<line x1="840" y1="300" x2="870" y2="300" stroke="#fbbf24" stroke-width="2" opacity=".4" marker-end="url(#arr)"/>`;
-  svg+=`<text x="855" y="290" text-anchor="middle" fill="#fbbf24" font-family="JetBrains Mono,monospace" font-size="8" opacity=".5">VPC</text>`;
+      // Bidirectional arrows
+      [[35, 70, 85], [35, 140, 155], [35, 225, 240], [35, 290, 305], [35, 365, 385], [35, 515, 535], [35, 595, 615], [35, 690, 710]].forEach(([x, y1, y2]) => {
+        s += `<line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}" stroke="#60a5fa" stroke-width="1.2" opacity=".25" marker-end="url(#arr)"/>`;
+      });
 
-  // Mobile users at top
-  svg+=`<rect x="440" y="0" width="300" height="24" rx="6" fill="#fb923c" fill-opacity=".1" stroke="#fb923c" stroke-width="1" opacity=".4"/>`;
-  svg+=`<text x="590" y="16" text-anchor="middle" fill="#fb923c" font-family="JetBrains Mono,monospace" font-size="9" opacity=".7">Mobile Apps + Web Dashboard → HTTPS/WSS</text>`;
+      // Cross-cutting sidebar: Observability
+      s += `<rect x="${W - 170}" y="535" width="140" height="250" rx="10" fill="#ef4444" fill-opacity=".03" stroke="#ef4444" stroke-width="1" stroke-dasharray="6,4" opacity=".3"/>`;
+      s += `<text x="${W - 100}" y="555" text-anchor="middle" fill="#ef4444" font-family="JetBrains Mono,monospace" font-size="9" font-weight="600" letter-spacing="1" opacity=".6">OBSERVABILITY</text>`;
+      ['OpenTelemetry', 'Grafana', 'Prometheus', 'Loki', 'Tempo'].forEach((t, i) => {
+        s += `<text x="${W - 100}" y="${575 + i * 20}" text-anchor="middle" fill="#ef4444" font-family="JetBrains Mono,monospace" font-size="8.5" opacity=".5">${t}</text>`;
+      });
 
-  svg+=`</svg>`;
-  document.getElementById('deployDiagram').innerHTML=svg;
-}
+      // Cross-cutting sidebar: CI/CD
+      s += `<rect x="${W - 170}" y="155" width="140" height="165" rx="10" fill="#a3e635" fill-opacity=".03" stroke="#a3e635" stroke-width="1" stroke-dasharray="6,4" opacity=".3"/>`;
+      s += `<text x="${W - 100}" y="175" text-anchor="middle" fill="#a3e635" font-family="JetBrains Mono,monospace" font-size="9" font-weight="600" letter-spacing="1" opacity=".6">CI/CD PER MODULE</text>`;
+      ['GitHub Actions', 'ArgoCD (GitOps)', 'Terraform (IaC)', 'Kubernetes', 'K3s (Edge)'].forEach((t, i) => {
+        s += `<text x="${W - 100}" y="${195 + i * 20}" text-anchor="middle" fill="#a3e635" font-family="JetBrains Mono,monospace" font-size="8.5" opacity=".5">${t}</text>`;
+      });
 
-renderArch();
-renderDeploy();
-</script>
+      // Database detail: ownership model
+      s += `<text x="${W / 2}" y="${H - 130}" text-anchor="middle" fill="#2dd4bf" font-family="JetBrains Mono,monospace" font-size="10" opacity=".5">Single database · Single writer per table · Many readers · 60 tables + 39 lookups + 25 views + 30 triggers</text>`;
+
+      // Repository structure footer
+      s += `<rect x="30" y="${H - 110}" width="${W - 60}" height="95" rx="10" fill="transparent" stroke="var(--border)" stroke-width="1" stroke-dasharray="4,4" opacity=".3"/>`;
+      s += `<text x="50" y="${H - 88}" fill="#9ca3af" font-family="JetBrains Mono,monospace" font-size="10" font-weight="600" letter-spacing="1" opacity=".6">10 REPOSITORIES</text>`;
+
+      const repos = [
+        { name: 'rpms-design', color: '#9ca3af' }, { name: 'rpms-platform', color: '#a78bfa' },
+        { name: 'rpms-mod-plantation', color: '#2dd4bf' }, { name: 'rpms-mod-tree', color: '#2dd4bf' },
+        { name: 'rpms-mod-tapping', color: '#2dd4bf' }, { name: 'rpms-mod-workforce', color: '#2dd4bf' },
+        { name: 'rpms-mod-activity', color: '#2dd4bf' }, { name: 'rpms-mod-attendance', color: '#2dd4bf' },
+        { name: 'rpms-shell-web', color: '#fb923c' }, { name: 'rpms-shell-mobile', color: '#fb923c' },
+      ];
+      repos.forEach((r, i) => {
+        const rx = 50 + i * 115; const ry = H - 72;
+        s += `<rect x="${rx}" y="${ry}" width="108" height="24" rx="4" fill="${r.color}" fill-opacity=".1" stroke="${r.color}" stroke-width=".6" opacity=".6"/>`;
+        s += `<text x="${rx + 54}" y="${ry + 15}" text-anchor="middle" fill="${r.color}" font-family="JetBrains Mono,monospace" font-size="7.5" font-weight="500" opacity=".8">${r.name}</text>`;
+      });
+
+      s += `</svg>`;
+      document.getElementById('archDiagram').innerHTML = s;
+    }
+
+    // ══════════════════════════════════════════
+    // RENDER: Deployment Diagram (Tab 4 — SVG)
+    // ══════════════════════════════════════════
+    function renderDeploy() {
+      const W = 1200, H = 700;
+      let s = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">`;
+
+      const zones = [
+        {
+          x: 30, w: 260, label: 'PLANTATION EDGE', sub: 'Per-plantation K3s cluster', color: '#4ade80',
+          items: ['Mosquitto MQTT', 'Camel Edge Router', 'SQLite Sync Cache', 'Biometric Unit', 'LoRa Gateway']
+        },
+        {
+          x: 320, w: 540, label: 'CLOUD KUBERNETES CLUSTER', sub: 'AWS EKS / GKE — Per-Module Deployments', color: '#60a5fa',
+          items: ['API Gateway Pod', 'Plantation Svc Pod', 'Tree Svc Pod', 'Tapping Svc Pod (HPA)', 'Workforce Svc Pod', 'Activity Svc Pod (HPA)', 'Attendance Svc Pod (HPA)', 'Notification Svc Pod', 'Reporting Svc Pod', 'Kafka Cluster (3 brokers)', 'Camel Cloud Router', 'Temporal Server']
+        },
+        {
+          x: 890, w: 280, label: 'DATA & AI ZONE', sub: 'GPU nodes + Managed DB', color: '#fb7185',
+          items: ['PostgreSQL (Primary+Replica)', 'TimescaleDB', 'Redis Cluster', 'Elasticsearch', 'MinIO', 'AI Inference Pods (GPU)', 'ML Training Jobs', 'Hyperledger Peers']
+        },
+      ];
+
+      zones.forEach(z => {
+        s += `<rect x="${z.x}" y="60" width="${z.w}" height="${H - 120}" rx="14" fill="${z.color}" fill-opacity=".03" stroke="${z.color}" stroke-width="1.2" opacity=".4"/>`;
+        s += `<text x="${z.x + z.w / 2}" y="85" text-anchor="middle" fill="${z.color}" font-family="JetBrains Mono,monospace" font-size="11" font-weight="600" letter-spacing="1.5">${z.label}</text>`;
+        s += `<text x="${z.x + z.w / 2}" y="102" text-anchor="middle" fill="${z.color}" font-family="JetBrains Mono,monospace" font-size="9" opacity=".6">${z.sub}</text>`;
+        const cols = z.w > 400 ? 3 : 2;
+        const itemW = (z.w - 40 - (cols - 1) * 10) / cols;
+        z.items.forEach((item, i) => {
+          const col = i % cols; const row = Math.floor(i / cols);
+          const ix = z.x + 20 + col * (itemW + 10); const iy = 120 + row * 42;
+          s += `<rect x="${ix}" y="${iy}" width="${itemW}" height="34" rx="6" fill="${z.color}" fill-opacity=".06" stroke="${z.color}" stroke-width=".6" opacity=".5"/>`;
+          s += `<text x="${ix + itemW / 2}" y="${iy + 20}" text-anchor="middle" fill="${z.color}" font-family="JetBrains Mono,monospace" font-size="8.5" font-weight="500" opacity=".8">${item}</text>`;
+        });
+      });
+
+      // Client apps at top
+      s += `<rect x="30" y="8" width="${W - 60}" height="40" rx="8" fill="#fb923c" fill-opacity=".04" stroke="#fb923c" stroke-width="1" opacity=".3"/>`;
+      s += `<text x="${W / 2}" y="32" text-anchor="middle" fill="#fb923c" font-family="JetBrains Mono,monospace" font-size="10" font-weight="600" letter-spacing="1" opacity=".7">CLIENT SHELLS:  rpms-shell-web (Angular CDN)  ·  rpms-shell-mobile (Play Store APK)  ·  Tapper App  ·  Supervisor App</text>`;
+
+      // CI/CD pipeline at bottom
+      s += `<rect x="30" y="${H - 50}" width="${W - 60}" height="40" rx="8" fill="#a3e635" fill-opacity=".04" stroke="#a3e635" stroke-width="1" opacity=".3"/>`;
+      s += `<text x="${W / 2}" y="${H - 26}" text-anchor="middle" fill="#a3e635" font-family="JetBrains Mono,monospace" font-size="10" font-weight="600" letter-spacing="1" opacity=".7">CI/CD:  GitHub Actions (per-module)  →  Docker Image (GHCR)  →  ArgoCD Sync  →  K8s Rolling Update  →  Shell Rebuild Webhook</text>`;
+
+      // Connection arrows
+      s += `<line x1="290" y1="350" x2="320" y2="350" stroke="#60a5fa" stroke-width="1.5" opacity=".3" marker-end="url(#arr)"/>`;
+      s += `<text x="305" y="345" text-anchor="middle" fill="#60a5fa" font-family="JetBrains Mono,monospace" font-size="7" opacity=".5">WAN</text>`;
+      s += `<line x1="860" y1="350" x2="890" y2="350" stroke="#fb7185" stroke-width="1.5" opacity=".3" marker-end="url(#arr)"/>`;
+
+      s += `</svg>`;
+      document.getElementById('deployDiagram').innerHTML = s;
+    }
+
+    renderArch();
+    renderDeploy();
+  </script>
 </body>
+
 </html>

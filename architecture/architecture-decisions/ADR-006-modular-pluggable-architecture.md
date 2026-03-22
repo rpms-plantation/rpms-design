@@ -55,7 +55,7 @@ The specific challenges driving this decision are:
 | `rpms-mod-activity` | Module 5 — Daily Activity Monitoring | Quarkus backend + Flyway V5_xxx + Angular library (@rpms/mod-activity) + KMP feature + OpenAPI spec + Avro schemas |
 | `rpms-mod-attendance` | Module 6 — Attendance Management | Quarkus backend + Flyway V6_xxx + Angular library (@rpms/mod-attendance) + KMP feature + OpenAPI spec + Avro schemas |
 | `rpms-shell-web` | Angular shell application | Thin compositor — layout, sidebar, routing, theme. Composes @rpms/mod-* libraries via lazy-loaded routes. No business logic. |
-| `rpms-shell-android` | Android shell application | Thin compositor — Compose Navigation host. Composes module KMP features via Gradle dependencies. No business logic. |
+| `rpms-shell-mobile` | Android shell application | Thin compositor — Compose Navigation host. Composes module KMP features via Gradle dependencies. No business logic. |
 | `rpms-design` | Design artifacts (unchanged) | DDL, diagrams, ADRs, API contracts, wireframes |
 
 ### Confirmation
@@ -177,7 +177,7 @@ For each module (M1 through M6), sequentially:
 ### Phase 3: Create Shell Apps (Week 6)
 
 1. Create `rpms-shell-web` — thin Angular compositor
-2. Create `rpms-shell-android` — thin Compose Navigation host
+2. Create `rpms-shell-mobile` — thin Compose Navigation host
 3. Wire up all six module packages via lazy loading
 4. Configure webhook triggers from module repos to shell repos
 5. Full integration testing

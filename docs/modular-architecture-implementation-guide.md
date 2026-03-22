@@ -57,7 +57,7 @@ rpms-plantation (GitHub Organization)
 ├── rpms-mod-attendance        # M6 — Quarkus backend + Angular lib + KMP feature
 │
 ├── rpms-shell-web             # Angular shell app (thin compositor)
-└── rpms-shell-android         # Android shell app (thin compositor)
+└── rpms-shell-mobile         # Android shell app (thin compositor)
 ```
 
 **Total: 10 repositories** (rpms-design unchanged + rpms-platform + 6 modules + 2 shells)
@@ -635,10 +635,10 @@ export class PlantationDashboardComponent { /* ... */ }
 
 ## Android Shell Composition
 
-### rpms-shell-android Structure
+### rpms-shell-mobile Structure
 
 ```
-rpms-shell-android/
+rpms-shell-mobile/
 ├── app/
 │   ├── src/main/kotlin/com/rpms/app/
 │   │   ├── RpmsApplication.kt                # Application class + Koin DI setup
@@ -658,7 +658,7 @@ rpms-shell-android/
 ### Module Navigation Composition
 
 ```kotlin
-// rpms-shell-android/app/.../navigation/RpmsNavHost.kt
+// rpms-shell-mobile/app/.../navigation/RpmsNavHost.kt
 @Composable
 fun RpmsNavHost(navController: NavHostController) {
     NavHost(navController, startDestination = "plantation") {
@@ -701,7 +701,7 @@ fun NavGraphBuilder.tappingNavGraph(navController: NavHostController) {
 ### Module Gradle Dependencies
 
 ```kotlin
-// rpms-shell-android/app/build.gradle.kts
+// rpms-shell-mobile/app/build.gradle.kts
 dependencies {
     // Platform foundation
     implementation("com.rpms:shared-kmp:1.0.0")
@@ -1029,7 +1029,7 @@ jobs:
       # Notify shell repos to rebuild with new module version
       - name: Trigger Shell Rebuilds
         run: |
-          for repo in rpms-shell-web rpms-shell-android; do
+          for repo in rpms-shell-web rpms-shell-mobile; do
             curl -X POST \
               -H "Authorization: token ${{ secrets.DISPATCH_TOKEN }}" \
               -H "Accept: application/vnd.github.v3+json" \
@@ -1199,7 +1199,7 @@ For each module (M1 → M6), sequentially:
 
 1. Create `rpms-shell-web` with layout, sidebar, routing, theme
 2. Wire up all six `@rpms/mod-*` packages via lazy loading
-3. Create `rpms-shell-android` with Compose Navigation host
+3. Create `rpms-shell-mobile` with Compose Navigation host
 4. Wire up all six `com.rpms:mod-*-kmp` packages
 5. Configure webhook triggers from module repos
 6. Full integration testing: all modules load correctly, navigation works, cross-module widgets render
@@ -1241,7 +1241,7 @@ When adding a Phase 2+ module (e.g., Financial Accounting):
 - [ ] Add route entry in `app.routes.ts`
 - [ ] Add nav items in `nav-registry.ts`
 
-### 4. Plug into rpms-shell-android (2 lines)
+### 4. Plug into rpms-shell-mobile (2 lines)
 
 - [ ] Add `com.rpms:mod-finance-kmp` to `build.gradle.kts`
 - [ ] Add `financeNavGraph(navController)` to `RpmsNavHost.kt`
