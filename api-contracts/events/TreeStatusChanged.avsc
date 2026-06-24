@@ -1,0 +1,15 @@
+{
+  "type": "record",
+  "name": "TreeStatusChanged",
+  "namespace": "com.rpms.events.tree",
+  "doc": "Emitted when a tree's lifecycle status changes (e.g. TAPPABLE -> TAPPING -> DEAD) in Module 2. Partition key: fieldId (keeps per-field tree events ordered). Consumed by: tapping-service (M3), reporting-service.",
+  "fields": [
+    { "name": "metadata", "type": "com.rpms.events.EventMetadata" },
+    { "name": "treeId", "type": "long" },
+    { "name": "fieldId", "type": "int" },
+    { "name": "treeCode", "type": "string" },
+    { "name": "oldStatus", "type": ["null", "string"], "default": null },
+    { "name": "newStatus", "type": "string" },
+    { "name": "changeDate", "type": { "type": "int", "logicalType": "date" } }
+  ]
+}

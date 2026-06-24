@@ -1,0 +1,17 @@
+{
+  "type": "record",
+  "name": "DiseaseIncidentDetected",
+  "namespace": "com.rpms.events.tree",
+  "doc": "Emitted when a new disease/pest incident is reported on a tree in Module 2. Partition key: fieldId. Consumed by: notification-service, activity-service (M5).",
+  "fields": [
+    { "name": "metadata", "type": "com.rpms.events.EventMetadata" },
+    { "name": "incidentId", "type": "long" },
+    { "name": "treeId", "type": "long" },
+    { "name": "fieldId", "type": "int" },
+    { "name": "diseaseCode", "type": "string" },
+    { "name": "severity", "type": "string", "doc": "MILD | MODERATE | SEVERE | TERMINAL" },
+    { "name": "spreadRisk", "type": ["null", "string"], "default": null },
+    { "name": "causedTappingStop", "type": "boolean", "default": false },
+    { "name": "detectedDate", "type": { "type": "int", "logicalType": "date" } }
+  ]
+}

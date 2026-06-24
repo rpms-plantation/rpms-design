@@ -1,0 +1,1623 @@
+openapi: 3.0.3
+info:
+  title: RPMS Tree Service API
+  description: |
+    Module 2 — Tree Records & Tracking.
+    Manages individual rubber tree registration, NFC/RFID/QR tag scanning,
+    growth measurements, bark panel history, health inspections, disease
+    incidents, treatments, mortality records, and field-level census summaries.
+
+    **Spatial**: PostGIS Point on each tree (auto-synced from lat/lon by a DB
+    trigger). GPS coordinates exposed as latitude/longitude pairs in DTOs.
+
+    **Framework**: Spring Boot 3 + Java 21 (ADR-002)
+    **Database**: PostgreSQL 16 + PostGIS (ADR-001)
+    **Repo**: rpms-mod-tree
+    **Depends on**: Module 1 (plantation, field, clone_master, nursery)
+  version: 1.0.0
+  contact:
+    name: RPMS Architecture Team
+  license:
+    name: Proprietary
+
+servers:
+  - url: /api/tree
+    description: Behind API Gateway (rpms-platform)
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Trees
+    description: Individual rubber tree master records — the core entity
+  - name: Tree Rows
+    description: Row-level organization within a field
+  - name: Tree Tags
+    description: NFC/RFID/QR tag registration and field scanning
+  - name: Growth Measurements
+    description: Time-series girth, bark, height measurements
+  - name: Panel History
+    description: Tapping panel progression per tree
+  - name: Health Inspections
+    description: Periodic field health assessments
+  - name: Disease Incidents
+    description: Disease/pest occurrence tracking
+  - name: Treatments
+    description: Treatments applied to trees
+  - name: Mortality
+    description: Tree death/removal records
+  - name: Census
+    description: Field-level periodic tree census summaries
+  - name: Analytics
+    description: Cross-tree analytical views
+  - name: Lookups
+    description: Read-only reference data
+
+# ════════════════════════════════════════════════════════════════════
+# PATHS
+# ════════════════════════════════════════════════════════════════════
+paths:
+
+  # ─────────────────────── TREE ROWS ───────────────────────
+  /plantations/{plantationId}/fields/{fieldId}/rows:
+    parameters:
+      - $ref: '#/components/parameters/PlantationIdPath'
+      - $ref: '#/components/parameters/FieldIdPath'
+    get:
+      tags: [Tree Rows]
+      summary: List rows for a field
+      operationId: listTreeRows
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedTreeRowResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Tree Rows]
+      summary: Create a tree row
+      operationId: createTreeRow
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TreeRowCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TreeRowResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /plantations/{plantationId}/fields/{fieldId}/rows/{rowId}:
+    parameters:
+      - $ref: '#/components/parameters/PlantationIdPath'
+      - $ref: '#/components/parameters/FieldIdPath'
+      - name: rowId
+        in: path
+        required: true
+        schema: { type: integer }
+    get:
+      tags: [Tree Rows]
+      summary: Get row by ID
+      operationId: getTreeRow
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TreeRowResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── TREES ───────────────────────
+  /trees:
+    get:
+      tags: [Trees]
+      summary: List trees (filterable across plantation/field/status)
+      operationId: listTrees
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
+        - name: plantationId
+          in: query
+          schema: { type: integer }
+        - name: fieldId
+          in: query
+          schema: { type: integer }
+        - name: rowId
+          in: query
+          schema: { type: integer }
+        - name: cloneCode
+          in: query
+          schema: { type: string }
+        - name: treeStatus
+          in: query
+          schema: { type: string }
+          description: Lookup code from lu_tree_status
+        - name: healthRating
+          in: query
+          schema: { type: string }
+        - $ref: '#/components/parameters/LatParam'
+        - $ref: '#/components/parameters/LonParam'
+        - $ref: '#/components/parameters/RadiusKmParam'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedTreeResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Trees]
+      summary: Register a new tree
+      operationId: createTree
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TreeCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TreeResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /trees/{treeId}:
+    parameters:
+      - $ref: '#/components/parameters/TreeIdPath'
+    get:
+      tags: [Trees]
+      summary: Get tree by ID
+      operationId: getTree
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TreeResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Trees]
+      summary: Update a tree
+      operationId: updateTree
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TreeUpdateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TreeResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /trees/{treeId}/profile:
+    parameters:
+      - $ref: '#/components/parameters/TreeIdPath'
+    get:
+      tags: [Trees]
+      summary: Get full tree profile (from vw_tree_profile)
+      operationId: getTreeProfile
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TreeProfileResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /trees/{treeId}/status-history:
+    parameters:
+      - $ref: '#/components/parameters/TreeIdPath'
+    get:
+      tags: [Trees]
+      summary: List status change history (immutable — auto-logged by DB trigger on status change)
+      operationId: listTreeStatusHistory
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedTreeStatusLogResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ─────────────────────── TREE TAGS ───────────────────────
+  /trees/{treeId}/tags:
+    parameters:
+      - $ref: '#/components/parameters/TreeIdPath'
+    get:
+      tags: [Tree Tags]
+      summary: List tags attached to a tree
+      operationId: listTreeTags
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedTreeTagResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Tree Tags]
+      summary: Register a new tag on a tree
+      operationId: createTreeTag
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TreeTagCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TreeTagResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /tags/{tagUid}/scan:
+    parameters:
+      - name: tagUid
+        in: path
+        required: true
+        schema: { type: string }
+        description: Physical tag UID scanned by mobile device (NFC/RFID/QR)
+    post:
+      tags: [Tree Tags]
+      summary: Record a field scan and resolve the tree behind the tag
+      description: |
+        Called by the mobile app when a tapper/supervisor scans a tree's NFC/RFID/QR tag.
+        Increments the tag's scan counter and returns the associated tree profile.
+      operationId: scanTreeTag
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TreeProfileResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── GROWTH MEASUREMENTS ───────────────────────
+  /trees/{treeId}/growth-measurements:
+    parameters:
+      - $ref: '#/components/parameters/TreeIdPath'
+    get:
+      tags: [Growth Measurements]
+      summary: List growth measurements for a tree
+      operationId: listGrowthMeasurements
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
+        - name: parameterCode
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedGrowthMeasurementResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Growth Measurements]
+      summary: Record a growth measurement
+      description: |
+        Recording a GIRTH, BARK_THICKNESS, or BARK_CONSUMPTION measurement
+        auto-updates the tree's denormalized current_girth_cm / current_bark_mm /
+        bark_consumption_pct fields via a DB trigger.
+      operationId: createGrowthMeasurement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GrowthMeasurementCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GrowthMeasurementResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ─────────────────────── PANEL HISTORY ───────────────────────
+  /trees/{treeId}/panels:
+    parameters:
+      - $ref: '#/components/parameters/TreeIdPath'
+    get:
+      tags: [Panel History]
+      summary: List bark panel history for a tree
+      operationId: listTreePanels
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedTreePanelResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Panel History]
+      summary: Open a new tapping panel on a tree
+      operationId: createTreePanel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TreePanelCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TreePanelResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /trees/{treeId}/panels/{panelHistoryId}:
+    parameters:
+      - $ref: '#/components/parameters/TreeIdPath'
+      - name: panelHistoryId
+        in: path
+        required: true
+        schema: { type: integer }
+    put:
+      tags: [Panel History]
+      summary: Update / close a tapping panel
+      operationId: updateTreePanel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TreePanelUpdateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TreePanelResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── HEALTH INSPECTIONS ───────────────────────
+  /trees/{treeId}/health-inspections:
+    parameters:
+      - $ref: '#/components/parameters/TreeIdPath'
+    get:
+      tags: [Health Inspections]
+      summary: List health inspections for a tree
+      operationId: listHealthInspections
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedHealthInspectionResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Health Inspections]
+      summary: Record a health inspection (immutable — append-only)
+      operationId: createHealthInspection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HealthInspectionCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HealthInspectionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ─────────────────────── DISEASE INCIDENTS ───────────────────────
+  /trees/{treeId}/disease-incidents:
+    parameters:
+      - $ref: '#/components/parameters/TreeIdPath'
+    get:
+      tags: [Disease Incidents]
+      summary: List disease incidents for a tree
+      operationId: listDiseaseIncidents
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
+        - name: status
+          in: query
+          schema: { type: string, enum: [ACTIVE, UNDER_TREATMENT, RESOLVED, CHRONIC, FATAL] }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedDiseaseIncidentResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Disease Incidents]
+      summary: Report a disease incident
+      operationId: createDiseaseIncident
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DiseaseIncidentCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DiseaseIncidentResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /trees/{treeId}/disease-incidents/{incidentId}:
+    parameters:
+      - $ref: '#/components/parameters/TreeIdPath'
+      - name: incidentId
+        in: path
+        required: true
+        schema: { type: integer, format: int64 }
+    put:
+      tags: [Disease Incidents]
+      summary: Update / resolve a disease incident
+      operationId: updateDiseaseIncident
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DiseaseIncidentUpdateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DiseaseIncidentResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── TREATMENTS ───────────────────────
+  /trees/{treeId}/treatments:
+    parameters:
+      - $ref: '#/components/parameters/TreeIdPath'
+    get:
+      tags: [Treatments]
+      summary: List treatments applied to a tree
+      operationId: listTreatments
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedTreatmentResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Treatments]
+      summary: Record a treatment applied to a tree
+      operationId: createTreatment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TreatmentCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TreatmentResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ─────────────────────── MORTALITY ───────────────────────
+  /trees/{treeId}/mortality:
+    parameters:
+      - $ref: '#/components/parameters/TreeIdPath'
+    get:
+      tags: [Mortality]
+      summary: Get the mortality record for a tree (one per dead/removed tree)
+      operationId: getMortalityRecord
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MortalityResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Mortality]
+      summary: Record tree death or removal
+      description: |
+        Recording a mortality record transitions the tree's status to DEAD or
+        REMOVED. The DB enforces mortality_date is set whenever a tree carries
+        either status.
+      operationId: createMortalityRecord
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MortalityCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MortalityResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  # ─────────────────────── CENSUS ───────────────────────
+  /plantations/{plantationId}/fields/{fieldId}/census:
+    parameters:
+      - $ref: '#/components/parameters/PlantationIdPath'
+      - $ref: '#/components/parameters/FieldIdPath'
+    get:
+      tags: [Census]
+      summary: List census records for a field
+      operationId: listCensusRecords
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
+        - name: censusYear
+          in: query
+          schema: { type: integer }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedCensusResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Census]
+      summary: Record a field tree census
+      operationId: createCensusRecord
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CensusCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CensusResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /plantations/{plantationId}/fields/{fieldId}/tree-summary:
+    parameters:
+      - $ref: '#/components/parameters/PlantationIdPath'
+      - $ref: '#/components/parameters/FieldIdPath'
+    get:
+      tags: [Census]
+      summary: Get live field tree summary (from vw_field_tree_summary)
+      operationId: getFieldTreeSummary
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FieldTreeSummaryResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── ANALYTICS ───────────────────────
+  /disease-hotspots:
+    get:
+      tags: [Analytics]
+      summary: Disease hotspot analysis (from vw_disease_hotspot)
+      operationId: getDiseaseHotspots
+      parameters:
+        - name: plantationCode
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/DiseaseHotspotResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /mortality-analysis:
+    get:
+      tags: [Analytics]
+      summary: Mortality analysis (from vw_mortality_analysis)
+      operationId: getMortalityAnalysis
+      parameters:
+        - name: plantationCode
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/MortalityAnalysisResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ─────────────────────── LOOKUPS ───────────────────────
+  /lookups/tree-statuses:
+    get:
+      tags: [Lookups]
+      summary: List tree lifecycle statuses
+      operationId: listTreeStatuses
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TreeStatusLookup' }
+
+  /lookups/health-ratings:
+    get:
+      tags: [Lookups]
+      summary: List health ratings
+      operationId: listHealthRatings
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/HealthRatingLookup' }
+
+  /lookups/diseases:
+    get:
+      tags: [Lookups]
+      summary: List disease/pest catalog
+      operationId: listDiseases
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/DiseaseLookup' }
+
+  /lookups/treatment-types:
+    get:
+      tags: [Lookups]
+      summary: List treatment types
+      operationId: listTreatmentTypes
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TreatmentTypeLookup' }
+
+  /lookups/growth-parameters:
+    get:
+      tags: [Lookups]
+      summary: List growth parameters
+      operationId: listGrowthParameters
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/GrowthParameterLookup' }
+
+  /lookups/tag-types:
+    get:
+      tags: [Lookups]
+      summary: List IoT tag types
+      operationId: listTagTypes
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TagTypeLookup' }
+
+  /lookups/mortality-causes:
+    get:
+      tags: [Lookups]
+      summary: List mortality causes
+      operationId: listMortalityCauses
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/MortalityCauseLookup' }
+
+# ════════════════════════════════════════════════════════════════════
+# COMPONENTS
+# ════════════════════════════════════════════════════════════════════
+components:
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Keycloak-issued JWT token
+
+  # ─────────────── SHARED PARAMETERS ───────────────
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      schema: { type: integer, default: 0, minimum: 0 }
+      description: Zero-based page number
+    SizeParam:
+      name: size
+      in: query
+      schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+      description: Page size
+    SortParam:
+      name: sort
+      in: query
+      schema: { type: string }
+      description: 'Sort field and direction (e.g., plantingYear,desc)'
+    LatParam:
+      name: lat
+      in: query
+      schema: { type: number, format: double, minimum: -90, maximum: 90 }
+      description: Latitude for spatial proximity filter
+    LonParam:
+      name: lon
+      in: query
+      schema: { type: number, format: double, minimum: -180, maximum: 180 }
+      description: Longitude for spatial proximity filter
+    RadiusKmParam:
+      name: radiusKm
+      in: query
+      schema: { type: number, format: double, default: 10 }
+      description: Search radius in kilometers (requires lat + lon)
+    PlantationIdPath:
+      name: plantationId
+      in: path
+      required: true
+      schema: { type: integer }
+    FieldIdPath:
+      name: fieldId
+      in: path
+      required: true
+      schema: { type: integer }
+    TreeIdPath:
+      name: treeId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+
+  # ─────────────── SHARED RESPONSES ───────────────
+  responses:
+    BadRequest:
+      description: Validation error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Unauthorized:
+      description: Missing or invalid JWT token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Conflict:
+      description: Duplicate resource (unique constraint violation)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  # ─────────────── SCHEMAS ───────────────
+  schemas:
+
+    ErrorResponse:
+      type: object
+      properties:
+        timestamp: { type: string, format: date-time }
+        status: { type: integer }
+        error: { type: string }
+        message: { type: string }
+        path: { type: string }
+        fieldErrors:
+          type: array
+          items:
+            type: object
+            properties:
+              field: { type: string }
+              message: { type: string }
+
+    # ══════════ TREE ROW ══════════
+    TreeRowCreateRequest:
+      type: object
+      required: [rowNumber]
+      properties:
+        rowNumber: { type: integer, minimum: 1 }
+        rowDirection: { type: string, enum: [NS, EW, NE_SW, NW_SE] }
+        treeSpacingM: { type: number, format: double }
+        rowSpacingM: { type: number, format: double }
+        numberOfTrees: { type: integer, minimum: 0 }
+
+    TreeRowResponse:
+      type: object
+      properties:
+        rowId: { type: integer, readOnly: true }
+        fieldId: { type: integer }
+        rowNumber: { type: integer }
+        rowDirection: { type: string }
+        treeSpacingM: { type: number, format: double }
+        rowSpacingM: { type: number, format: double }
+        numberOfTrees: { type: integer }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+        createdBy: { type: string, readOnly: true }
+
+    PagedTreeRowResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/TreeRowResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ TREE ══════════
+    TreeCreateRequest:
+      type: object
+      required: [plantationId, fieldId, treeCode, cloneCode, plantingYear]
+      properties:
+        plantationId: { type: integer }
+        fieldId: { type: integer }
+        rowId: { type: integer }
+        treeCode: { type: string, maxLength: 50 }
+        treeSequence: { type: integer }
+        cloneCode: { type: string, description: 'Clone natural key code' }
+        isBudded: { type: boolean, default: true }
+        rootstockCloneCode: { type: string, description: 'Rootstock clone code, for budded trees' }
+        plantingDate: { type: string, format: date }
+        plantingYear: { type: integer, minimum: 1900, maximum: 2100 }
+        plantingMethod: { type: string, enum: [BUD_GRAFT, STUMP, POLYBAG, DIRECT_SEED, MARCOT] }
+        nurserySourceCode: { type: string, description: 'Nursery natural key code (nursery_code)' }
+        latitude: { type: number, format: double, minimum: -90, maximum: 90 }
+        longitude: { type: number, format: double, minimum: -180, maximum: 180 }
+        remarks: { type: string }
+
+    TreeUpdateRequest:
+      type: object
+      properties:
+        rowId: { type: integer }
+        treeSequence: { type: integer }
+        treeStatus: { type: string, description: 'Lookup code from lu_tree_status' }
+        healthRating: { type: string, description: 'Lookup code from lu_health_rating' }
+        tappingStartDate: { type: string, format: date }
+        currentPanel: { type: string, maxLength: 20 }
+        currentTappingSystem: { type: string }
+        panelsExhausted: { type: integer, minimum: 0 }
+        latitude: { type: number, format: double, minimum: -90, maximum: 90 }
+        longitude: { type: number, format: double, minimum: -180, maximum: 180 }
+        photoUrl: { type: string }
+        remarks: { type: string }
+
+    TreeResponse:
+      type: object
+      properties:
+        treeId: { type: integer, format: int64, readOnly: true }
+        plantationId: { type: integer }
+        fieldId: { type: integer }
+        rowId: { type: integer }
+        treeCode: { type: string }
+        treeSequence: { type: integer }
+        cloneCode: { type: string }
+        cloneName: { type: string }
+        isBudded: { type: boolean }
+        rootstockCloneCode: { type: string }
+        rootstockCloneName: { type: string }
+        plantingDate: { type: string, format: date }
+        plantingYear: { type: integer }
+        plantingMethod: { type: string }
+        nurserySourceCode: { type: string }
+        treeStatus: { type: string }
+        treeStatusName: { type: string }
+        isTappable: { type: boolean, readOnly: true }
+        healthRating: { type: string }
+        healthRatingName: { type: string }
+        currentGirthCm: { type: number, format: double, readOnly: true, description: 'Auto-synced from latest GIRTH growth measurement' }
+        currentBarkMm: { type: number, format: double, readOnly: true, description: 'Auto-synced from latest BARK_THICKNESS growth measurement' }
+        barkConsumptionPct: { type: number, format: double, readOnly: true }
+        tappingStartDate: { type: string, format: date }
+        currentPanel: { type: string }
+        currentTappingSystem: { type: string }
+        currentTappingSystemName: { type: string }
+        panelsExhausted: { type: integer }
+        latitude: { type: number, format: double }
+        longitude: { type: number, format: double }
+        mortalityDate: { type: string, format: date, readOnly: true }
+        mortalityCauseCode: { type: string, readOnly: true }
+        mortalityRemarks: { type: string, readOnly: true }
+        photoUrl: { type: string }
+        remarks: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+        createdBy: { type: string, readOnly: true }
+        updatedBy: { type: string, readOnly: true }
+
+    PagedTreeResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/TreeResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    TreeProfileResponse:
+      type: object
+      properties:
+        treeId: { type: integer, format: int64 }
+        treeCode: { type: string }
+        plantationCode: { type: string }
+        plantationName: { type: string }
+        fieldCode: { type: string }
+        fieldName: { type: string }
+        rowNumber: { type: integer }
+        treeSequence: { type: integer }
+        cloneCode: { type: string }
+        cloneName: { type: string }
+        cloneClass: { type: string }
+        currentStatus: { type: string }
+        isTappable: { type: boolean }
+        healthRating: { type: string }
+        healthScore: { type: integer }
+        plantingYear: { type: integer }
+        plantingDate: { type: string, format: date }
+        treeAgeYears: { type: integer }
+        currentGirthCm: { type: number, format: double }
+        currentBarkMm: { type: number, format: double }
+        barkConsumptionPct: { type: number, format: double }
+        currentPanel: { type: string }
+        currentTappingSystem: { type: string }
+        tappingStartDate: { type: string, format: date }
+        panelsExhausted: { type: integer }
+        latitude: { type: number, format: double }
+        longitude: { type: number, format: double }
+        mortalityDate: { type: string, format: date }
+        mortalityCause: { type: string }
+
+    TreeStatusLogResponse:
+      type: object
+      properties:
+        logId: { type: integer, format: int64, readOnly: true }
+        treeId: { type: integer, format: int64 }
+        changeDate: { type: string, format: date }
+        fromStatus: { type: string }
+        toStatus: { type: string }
+        reason: { type: string }
+        changedBy: { type: string }
+        blockchainTxHash: { type: string, readOnly: true }
+        blockchainBlockNo: { type: integer, format: int64, readOnly: true }
+        createdAt: { type: string, format: date-time, readOnly: true }
+
+    PagedTreeStatusLogResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/TreeStatusLogResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ TREE TAG ══════════
+    TreeTagCreateRequest:
+      type: object
+      required: [tagUid, tagTypeCode, installedDate]
+      properties:
+        tagUid: { type: string, maxLength: 100 }
+        tagTypeCode: { type: string, description: 'Lookup code from lu_tag_type' }
+        installedDate: { type: string, format: date }
+        installedBy: { type: string, maxLength: 100 }
+
+    TreeTagResponse:
+      type: object
+      properties:
+        tagId: { type: integer, format: int64, readOnly: true }
+        treeId: { type: integer, format: int64 }
+        tagUid: { type: string }
+        tagTypeCode: { type: string }
+        tagTypeName: { type: string }
+        installedDate: { type: string, format: date }
+        installedBy: { type: string }
+        deactivatedDate: { type: string, format: date }
+        deactivationReason: { type: string }
+        isActive: { type: boolean }
+        lastScannedAt: { type: string, format: date-time, readOnly: true }
+        lastScannedBy: { type: string, readOnly: true }
+        totalScanCount: { type: integer, readOnly: true }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+
+    PagedTreeTagResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/TreeTagResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ GROWTH MEASUREMENT ══════════
+    GrowthMeasurementCreateRequest:
+      type: object
+      required: [parameterCode, measuredValue, measurementUnit, measurementDate]
+      properties:
+        parameterCode: { type: string, description: 'Lookup code from lu_growth_parameter' }
+        measuredValue: { type: number, format: double }
+        measurementUnit: { type: string }
+        measurementDate: { type: string, format: date }
+        measurementMethod:
+          type: string
+          enum: [MANUAL_TAPE, DIGITAL_CALIPER, LASER_RANGEFINDER, DRONE_LIDAR, MOBILE_APP_PHOTO, IOT_SENSOR]
+        measuredBy: { type: string, maxLength: 100 }
+        remarks: { type: string }
+        photoUrl: { type: string }
+
+    GrowthMeasurementResponse:
+      type: object
+      properties:
+        measurementId: { type: integer, format: int64, readOnly: true }
+        treeId: { type: integer, format: int64 }
+        parameterCode: { type: string }
+        parameterName: { type: string }
+        measuredValue: { type: number, format: double }
+        measurementUnit: { type: string }
+        measurementDate: { type: string, format: date }
+        measurementMethod: { type: string }
+        isBelowThreshold: { type: boolean, readOnly: true }
+        isAboveThreshold: { type: boolean, readOnly: true }
+        measuredBy: { type: string }
+        remarks: { type: string }
+        photoUrl: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+
+    PagedGrowthMeasurementResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/GrowthMeasurementResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ PANEL HISTORY ══════════
+    TreePanelCreateRequest:
+      type: object
+      required: [panelCode, panelPosition, panelSide, openedDate]
+      properties:
+        panelCode: { type: string, maxLength: 20 }
+        panelPosition: { type: string, enum: [LOW, HIGH] }
+        panelSide: { type: string, enum: [INNER, OUTER] }
+        tappingSystem: { type: string }
+        openedDate: { type: string, format: date }
+        barkThicknessAtOpenMm: { type: number, format: double }
+        remarks: { type: string }
+
+    TreePanelUpdateRequest:
+      type: object
+      properties:
+        closedDate: { type: string, format: date }
+        barkThicknessAtCloseMm: { type: number, format: double }
+        barkConsumptionPct: { type: number, format: double, minimum: 0, maximum: 100 }
+        avgDailyYieldMl: { type: number, format: double }
+        totalTappingDays: { type: integer }
+        status: { type: string, enum: [ACTIVE, CLOSED, RESTING, DAMAGED] }
+        hasTpd: { type: boolean }
+        hasBarkRot: { type: boolean }
+        remarks: { type: string }
+
+    TreePanelResponse:
+      type: object
+      properties:
+        panelHistoryId: { type: integer, format: int64, readOnly: true }
+        treeId: { type: integer, format: int64 }
+        panelCode: { type: string }
+        panelPosition: { type: string }
+        panelSide: { type: string }
+        tappingSystem: { type: string }
+        tappingSystemName: { type: string }
+        openedDate: { type: string, format: date }
+        closedDate: { type: string, format: date }
+        barkThicknessAtOpenMm: { type: number, format: double }
+        barkThicknessAtCloseMm: { type: number, format: double }
+        barkConsumptionPct: { type: number, format: double }
+        avgDailyYieldMl: { type: number, format: double }
+        totalTappingDays: { type: integer }
+        status: { type: string }
+        hasTpd: { type: boolean }
+        hasBarkRot: { type: boolean }
+        remarks: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+
+    PagedTreePanelResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/TreePanelResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ HEALTH INSPECTION ══════════
+    HealthInspectionCreateRequest:
+      type: object
+      required: [inspectionDate, inspectorName, healthRating]
+      properties:
+        inspectionDate: { type: string, format: date }
+        inspectorName: { type: string, maxLength: 100 }
+        inspectionMethod:
+          type: string
+          enum: [VISUAL, INSTRUMENT, DRONE_IMAGE, AI_PHOTO_ANALYSIS, LAB_TEST]
+        healthRating: { type: string, description: 'Lookup code from lu_health_rating' }
+        canopyScore: { type: integer, minimum: 1, maximum: 5 }
+        trunkScore: { type: integer, minimum: 1, maximum: 5 }
+        barkScore: { type: integer, minimum: 1, maximum: 5 }
+        rootZoneScore: { type: integer, minimum: 1, maximum: 5 }
+        leafCondition:
+          type: string
+          enum: [FULL_CANOPY, PARTIAL_DEFOLIATION, HEAVY_DEFOLIATION, WINTERING, REFOLIATION]
+        latexFlowStatus:
+          type: string
+          enum: [NORMAL, REDUCED, NO_FLOW, EXCESSIVE, NOT_TAPPED]
+        diseaseDetected: { type: boolean, default: false }
+        primaryDiseaseCode: { type: string, description: 'Disease natural key code' }
+        diseaseSeverity: { type: string, enum: [MILD, MODERATE, SEVERE] }
+        photoUrls:
+          type: array
+          items: { type: string }
+        remarks: { type: string }
+
+    HealthInspectionResponse:
+      type: object
+      properties:
+        inspectionId: { type: integer, format: int64, readOnly: true }
+        treeId: { type: integer, format: int64 }
+        inspectionDate: { type: string, format: date }
+        inspectorName: { type: string }
+        inspectionMethod: { type: string }
+        healthRating: { type: string }
+        healthRatingName: { type: string }
+        canopyScore: { type: integer }
+        trunkScore: { type: integer }
+        barkScore: { type: integer }
+        rootZoneScore: { type: integer }
+        leafCondition: { type: string }
+        latexFlowStatus: { type: string }
+        diseaseDetected: { type: boolean }
+        primaryDiseaseCode: { type: string }
+        primaryDiseaseName: { type: string }
+        diseaseSeverity: { type: string }
+        aiAnalysisScore: { type: number, format: double, readOnly: true }
+        aiAnalysisNotes: { type: string, readOnly: true }
+        photoUrls:
+          type: array
+          items: { type: string }
+        remarks: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+
+    PagedHealthInspectionResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/HealthInspectionResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ DISEASE INCIDENT ══════════
+    DiseaseIncidentCreateRequest:
+      type: object
+      required: [diseaseCode, detectedDate, severity]
+      properties:
+        diseaseCode: { type: string, description: 'Disease natural key code' }
+        detectedDate: { type: string, format: date }
+        detectedBy: { type: string, maxLength: 100 }
+        detectionMethod:
+          type: string
+          enum: [VISUAL_FIELD, HEALTH_INSPECTION, AI_IMAGE_ANALYSIS, LAB_CONFIRMATION, IOT_SENSOR, TAPPER_REPORT]
+        severity: { type: string, enum: [MILD, MODERATE, SEVERE, TERMINAL] }
+        affectedAreaPct: { type: number, format: double, minimum: 0, maximum: 100 }
+        spreadRisk: { type: string, enum: [LOW, MEDIUM, HIGH] }
+        inspectionId: { type: integer, format: int64 }
+        causedTappingStop: { type: boolean, default: false }
+        tappingStopDate: { type: string, format: date }
+        photoUrls:
+          type: array
+          items: { type: string }
+        remarks: { type: string }
+
+    DiseaseIncidentUpdateRequest:
+      type: object
+      properties:
+        status: { type: string, enum: [ACTIVE, UNDER_TREATMENT, RESOLVED, CHRONIC, FATAL] }
+        resolvedDate: { type: string, format: date }
+        resolutionNotes: { type: string }
+        tappingResumeDate: { type: string, format: date }
+        severity: { type: string, enum: [MILD, MODERATE, SEVERE, TERMINAL] }
+        remarks: { type: string }
+
+    DiseaseIncidentResponse:
+      type: object
+      properties:
+        incidentId: { type: integer, format: int64, readOnly: true }
+        treeId: { type: integer, format: int64 }
+        diseaseCode: { type: string }
+        diseaseName: { type: string }
+        detectedDate: { type: string, format: date }
+        detectedBy: { type: string }
+        detectionMethod: { type: string }
+        severity: { type: string }
+        affectedAreaPct: { type: number, format: double }
+        spreadRisk: { type: string }
+        inspectionId: { type: integer, format: int64 }
+        status: { type: string }
+        resolvedDate: { type: string, format: date }
+        resolutionNotes: { type: string }
+        causedTappingStop: { type: boolean }
+        tappingStopDate: { type: string, format: date }
+        tappingResumeDate: { type: string, format: date }
+        photoUrls:
+          type: array
+          items: { type: string }
+        remarks: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+
+    PagedDiseaseIncidentResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/DiseaseIncidentResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ TREATMENT ══════════
+    TreatmentCreateRequest:
+      type: object
+      required: [treatmentCode, treatmentDate, appliedBy]
+      properties:
+        incidentId: { type: integer, format: int64 }
+        treatmentCode: { type: string, description: 'Lookup code from lu_treatment_type' }
+        treatmentDate: { type: string, format: date }
+        productName: { type: string, maxLength: 200 }
+        dosageAmount: { type: number, format: double }
+        dosageUnit: { type: string }
+        concentrationPct: { type: number, format: double }
+        applicationArea: { type: string, enum: [PANEL, TRUNK, ROOT_ZONE, CANOPY, FULL_TREE] }
+        appliedBy: { type: string, maxLength: 100 }
+        applicationDurationMin: { type: integer }
+        nextTreatmentDate: { type: string, format: date }
+        treatmentRound: { type: integer, default: 1 }
+        treatmentCost: { type: number, format: double }
+        currencyCode: { type: string, default: 'USD' }
+        photoUrl: { type: string }
+        remarks: { type: string }
+
+    TreatmentResponse:
+      type: object
+      properties:
+        treatmentId: { type: integer, format: int64, readOnly: true }
+        treeId: { type: integer, format: int64 }
+        incidentId: { type: integer, format: int64 }
+        treatmentCode: { type: string }
+        treatmentName: { type: string }
+        treatmentDate: { type: string, format: date }
+        productName: { type: string }
+        dosageAmount: { type: number, format: double }
+        dosageUnit: { type: string }
+        concentrationPct: { type: number, format: double }
+        applicationArea: { type: string }
+        appliedBy: { type: string }
+        applicationDurationMin: { type: integer }
+        nextTreatmentDate: { type: string, format: date }
+        treatmentRound: { type: integer }
+        outcome: { type: string }
+        outcomeAssessedDate: { type: string, format: date }
+        outcomeNotes: { type: string }
+        treatmentCost: { type: number, format: double }
+        currencyCode: { type: string }
+        photoUrl: { type: string }
+        remarks: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+
+    PagedTreatmentResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/TreatmentResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ MORTALITY ══════════
+    MortalityCreateRequest:
+      type: object
+      required: [mortalityDate, causeCode]
+      properties:
+        mortalityDate: { type: string, format: date }
+        causeCode: { type: string, description: 'Lookup code from lu_mortality_cause' }
+        incidentId: { type: integer, format: int64 }
+        ageAtDeathYears: { type: integer }
+        girthAtDeathCm: { type: number, format: double }
+        wasTappable: { type: boolean }
+        lastPanelUsed: { type: string }
+        treeRemoved: { type: boolean, default: false }
+        removalDate: { type: string, format: date }
+        replacementPlanted: { type: boolean, default: false }
+        replacementTreeId: { type: integer, format: int64 }
+        replacementDate: { type: string, format: date }
+        investigatedBy: { type: string }
+        investigationNotes: { type: string }
+        photoUrls:
+          type: array
+          items: { type: string }
+        estimatedYieldLossKg: { type: number, format: double }
+
+    MortalityResponse:
+      type: object
+      properties:
+        mortalityId: { type: integer, format: int64, readOnly: true }
+        treeId: { type: integer, format: int64 }
+        mortalityDate: { type: string, format: date }
+        causeCode: { type: string }
+        causeName: { type: string }
+        incidentId: { type: integer, format: int64 }
+        ageAtDeathYears: { type: integer }
+        girthAtDeathCm: { type: number, format: double }
+        wasTappable: { type: boolean }
+        lastPanelUsed: { type: string }
+        treeRemoved: { type: boolean }
+        removalDate: { type: string, format: date }
+        replacementPlanted: { type: boolean }
+        replacementTreeId: { type: integer, format: int64 }
+        replacementDate: { type: string, format: date }
+        investigatedBy: { type: string }
+        investigationNotes: { type: string }
+        photoUrls:
+          type: array
+          items: { type: string }
+        estimatedYieldLossKg: { type: number, format: double }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        reportedBy: { type: string, readOnly: true }
+
+    # ══════════ CENSUS ══════════
+    CensusCreateRequest:
+      type: object
+      required: [censusDate, censusYear, totalTrees, liveTrees, tappableTrees, treesUnderTapping, immatureTrees, diseasedTrees]
+      properties:
+        censusDate: { type: string, format: date }
+        censusYear: { type: integer }
+        totalTrees: { type: integer, minimum: 0 }
+        liveTrees: { type: integer, minimum: 0 }
+        tappableTrees: { type: integer, minimum: 0 }
+        treesUnderTapping: { type: integer, minimum: 0 }
+        immatureTrees: { type: integer, minimum: 0 }
+        diseasedTrees: { type: integer, minimum: 0 }
+        deadTreesYtd: { type: integer, default: 0 }
+        avgGirthCm: { type: number, format: double }
+        minGirthCm: { type: number, format: double }
+        maxGirthCm: { type: number, format: double }
+        conductedBy: { type: string }
+        remarks: { type: string }
+
+    CensusResponse:
+      type: object
+      properties:
+        censusId: { type: integer, readOnly: true }
+        fieldId: { type: integer }
+        censusDate: { type: string, format: date }
+        censusYear: { type: integer }
+        totalTrees: { type: integer }
+        liveTrees: { type: integer }
+        tappableTrees: { type: integer }
+        treesUnderTapping: { type: integer }
+        immatureTrees: { type: integer }
+        diseasedTrees: { type: integer }
+        deadTreesYtd: { type: integer }
+        mortalityRatePct: { type: number, format: double, readOnly: true }
+        tappingUtilizationPct: { type: number, format: double, readOnly: true }
+        standPerHa: { type: number, format: double, readOnly: true }
+        avgGirthCm: { type: number, format: double }
+        minGirthCm: { type: number, format: double }
+        maxGirthCm: { type: number, format: double }
+        conductedBy: { type: string }
+        remarks: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+
+    PagedCensusResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/CensusResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    FieldTreeSummaryResponse:
+      type: object
+      properties:
+        fieldId: { type: integer }
+        plantationCode: { type: string }
+        fieldCode: { type: string }
+        fieldName: { type: string }
+        cloneCode: { type: string }
+        areaHa: { type: number, format: double }
+        totalTrees: { type: integer }
+        liveTrees: { type: integer }
+        tappableTrees: { type: integer }
+        treesTapping: { type: integer }
+        diseasedTrees: { type: integer }
+        deadRemovedTrees: { type: integer }
+        avgGirthCm: { type: number, format: double }
+        avgBarkConsumptionPct: { type: number, format: double }
+        liveStandPerHa: { type: number, format: double }
+
+    # ══════════ ANALYTICS ══════════
+    DiseaseHotspotResponse:
+      type: object
+      properties:
+        plantationCode: { type: string }
+        fieldCode: { type: string }
+        diseaseCode: { type: string }
+        diseaseName: { type: string }
+        diseaseType: { type: string }
+        diseaseSeverityClass: { type: string }
+        totalIncidents: { type: integer }
+        activeIncidents: { type: integer }
+        underTreatment: { type: integer }
+        severeCount: { type: integer }
+        tappingStoppedCount: { type: integer }
+        earliestDetection: { type: string, format: date }
+        latestDetection: { type: string, format: date }
+
+    MortalityAnalysisResponse:
+      type: object
+      properties:
+        plantationCode: { type: string }
+        fieldCode: { type: string }
+        cloneCode: { type: string }
+        causeName: { type: string }
+        causeCategory: { type: string }
+        totalDeaths: { type: integer }
+        avgAgeAtDeath: { type: number, format: double }
+        avgGirthAtDeath: { type: number, format: double }
+        totalYieldLossKg: { type: number, format: double }
+        treesReplaced: { type: integer }
+        earliestDeath: { type: string, format: date }
+        latestDeath: { type: string, format: date }
+
+    # ══════════ LOOKUPS ══════════
+    LookupItem:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        description: { type: string }
+        isActive: { type: boolean }
+
+    TreeStatusLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        description: { type: string }
+        isTappable: { type: boolean }
+        displayOrder: { type: integer }
+        isActive: { type: boolean }
+
+    HealthRatingLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        ratingScore: { type: integer }
+        description: { type: string }
+        isActive: { type: boolean }
+
+    DiseaseLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        diseaseType: { type: string }
+        causalAgent: { type: string }
+        affectedPart: { type: string }
+        severityClass: { type: string }
+        symptoms: { type: string }
+        recommendedTreatment: { type: string }
+        isNotifiable: { type: boolean }
+        isActive: { type: boolean }
+
+    TreatmentTypeLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        treatmentClass: { type: string }
+        applicationMethod: { type: string }
+        description: { type: string }
+        safetyNotes: { type: string }
+        isActive: { type: boolean }
+
+    GrowthParameterLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        unitOfMeasure: { type: string }
+        description: { type: string }
+        minThreshold: { type: number, format: double }
+        maxThreshold: { type: number, format: double }
+        isActive: { type: boolean }
+
+    TagTypeLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        technology: { type: string }
+        readRangeM: { type: number, format: double }
+        description: { type: string }
+        isActive: { type: boolean }
+
+    MortalityCauseLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        causeCategory: { type: string }
+        description: { type: string }
+        isActive: { type: boolean }
