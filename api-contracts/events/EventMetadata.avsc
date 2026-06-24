@@ -1,0 +1,12 @@
+{
+  "type": "record",
+  "name": "EventMetadata",
+  "namespace": "com.rpms.events",
+  "doc": "Common metadata envelope included in every RPMS domain event.",
+  "fields": [
+    { "name": "eventId", "type": { "type": "string", "logicalType": "uuid" } },
+    { "name": "timestamp", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "source", "type": "string", "doc": "Producing service name, e.g. plantation-service" },
+    { "name": "correlationId", "type": ["null", { "type": "string", "logicalType": "uuid" }], "default": null }
+  ]
+}

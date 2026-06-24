@@ -1,0 +1,19 @@
+{
+  "type": "record",
+  "name": "PlantationCreated",
+  "namespace": "com.rpms.events.plantation",
+  "doc": "Emitted when a new plantation/estate master record is created in Module 1 (Plantation Field Records). Partition key: plantationId. Consumed by: reporting-service.",
+  "fields": [
+    { "name": "metadata", "type": "com.rpms.events.EventMetadata" },
+    { "name": "plantationId", "type": "int" },
+    { "name": "plantationCode", "type": "string" },
+    { "name": "plantationName", "type": "string" },
+    { "name": "region", "type": ["null", "string"], "default": null },
+    { "name": "district", "type": ["null", "string"], "default": null },
+    { "name": "country", "type": "string" },
+    { "name": "totalSurfaceArea", "type": "double" },
+    { "name": "measurementUnit", "type": "string", "doc": "Natural key code from lu_measurement_unit, e.g. HA" },
+    { "name": "status", "type": "string", "default": "ACTIVE" },
+    { "name": "createdAt", "type": { "type": "long", "logicalType": "timestamp-millis" } }
+  ]
+}

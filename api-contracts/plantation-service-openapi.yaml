@@ -962,7 +962,6 @@ components:
         ownershipType: { type: string, enum: [PRIVATE, STATE, COOPERATIVE, JOINT_VENTURE] }
         ownerName: { type: string, maxLength: 200 }
         managerName: { type: string, maxLength: 200 }
-        remarks: { type: string }
 
     PlantationUpdateRequest:
       type: object
@@ -984,7 +983,6 @@ components:
         ownerName: { type: string, maxLength: 200 }
         managerName: { type: string, maxLength: 200 }
         status: { type: string, enum: [ACTIVE, INACTIVE, DECOMMISSIONED] }
-        remarks: { type: string }
 
     PlantationResponse:
       type: object
@@ -1008,7 +1006,6 @@ components:
         ownerName: { type: string }
         managerName: { type: string }
         status: { type: string }
-        remarks: { type: string }
         createdAt: { type: string, format: date-time, readOnly: true }
         updatedAt: { type: string, format: date-time, readOnly: true }
         createdBy: { type: string, readOnly: true }

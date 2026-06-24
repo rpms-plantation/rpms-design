@@ -1,4 +1,28 @@
 {
+  "permissions": {
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep",
+      "Bash(cat *)",
+      "Bash(ls *)",
+      "Bash(find *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(wc *)",
+      "Bash(grep *)",
+      "Bash(diff *)",
+      "Bash(git status)",
+      "Bash(git log *)",
+      "Bash(git diff *)",
+      "Bash(git branch *)",
+      "Bash(git show *)",
+      "Bash(mvn -q -o compile)",
+      "Bash(echo \"EXIT_CODE=$?\")",
+      "Bash(mvn -q compile)",
+      "Bash(mvn -q -pl shared-libs/rpms-common,shared-libs/rpms-security,services/plantation-service install -DskipTests)"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
@@ -28,26 +52,6 @@
           }
         ]
       }
-    ]
-  },
-  "permissions": {
-    "allow": [
-      "Read",
-      "Glob",
-      "Grep",
-      "Bash(cat *)",
-      "Bash(ls *)",
-      "Bash(find *)",
-      "Bash(head *)",
-      "Bash(tail *)",
-      "Bash(wc *)",
-      "Bash(grep *)",
-      "Bash(diff *)",
-      "Bash(git status)",
-      "Bash(git log *)",
-      "Bash(git diff *)",
-      "Bash(git branch *)",
-      "Bash(git show *)"
     ]
   }
 }
