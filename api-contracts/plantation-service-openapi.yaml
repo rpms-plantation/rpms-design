@@ -176,6 +176,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/PageParam'
         - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
         - name: isActive
           in: query
           schema: { type: boolean }
@@ -338,6 +339,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/PageParam'
         - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
       responses:
         '200':
           content:
@@ -355,6 +357,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/PageParam'
         - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
       responses:
         '200':
           content:
@@ -374,6 +377,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/PageParam'
         - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
         - name: eventType
           in: query
           schema:
@@ -513,6 +517,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/PageParam'
         - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
         - name: nurseryType
           in: query
           schema: { type: string }
@@ -520,6 +525,9 @@ paths:
         - name: status
           in: query
           schema: { type: string, enum: [ACTIVE, INACTIVE, CLOSED] }
+        - $ref: '#/components/parameters/LatParam'
+        - $ref: '#/components/parameters/LonParam'
+        - $ref: '#/components/parameters/RadiusKmParam'
       responses:
         '200':
           content:
@@ -594,6 +602,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/PageParam'
         - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
       responses:
         '200':
           content:
@@ -656,6 +665,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/PageParam'
         - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
         - name: landUseCode
           in: query
           schema: { type: string }
@@ -725,6 +735,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/PageParam'
         - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
         - name: snapshotYear
           in: query
           schema: { type: integer }
@@ -932,15 +943,14 @@ components:
     # ══════════ PLANTATION ══════════
     PlantationCreateRequest:
       type: object
-      required: [plantationCode, plantationName, totalSurfaceArea, measurementUnit]
+      required: [plantationCode, plantationName, country, totalSurfaceArea, measurementUnit]
       properties:
         plantationCode: { type: string, maxLength: 20 }
         plantationName: { type: string, maxLength: 200 }
-        companyName: { type: string, maxLength: 200 }
         region: { type: string, maxLength: 100 }
         district: { type: string, maxLength: 100 }
+        stateProvince: { type: string, maxLength: 100 }
         country: { type: string, maxLength: 100 }
-        address: { type: string }
         totalSurfaceArea: { type: number, format: double, minimum: 0, exclusiveMinimum: true }
         measurementUnit: { type: string, description: 'Lookup code from lu_measurement_unit (e.g., HA, AC)' }
         latitude: { type: number, format: double, minimum: -90, maximum: 90 }
@@ -948,18 +958,20 @@ components:
         elevationM: { type: number, format: double }
         avgAnnualRainfallMm: { type: number, format: double }
         soilType: { type: string, maxLength: 100 }
-        climateZone: { type: string, maxLength: 50 }
+        establishmentDate: { type: string, format: date }
+        ownershipType: { type: string, enum: [PRIVATE, STATE, COOPERATIVE, JOINT_VENTURE] }
+        ownerName: { type: string, maxLength: 200 }
+        managerName: { type: string, maxLength: 200 }
         remarks: { type: string }
 
     PlantationUpdateRequest:
       type: object
       properties:
         plantationName: { type: string, maxLength: 200 }
-        companyName: { type: string, maxLength: 200 }
         region: { type: string, maxLength: 100 }
         district: { type: string, maxLength: 100 }
+        stateProvince: { type: string, maxLength: 100 }
         country: { type: string, maxLength: 100 }
-        address: { type: string }
         totalSurfaceArea: { type: number, format: double, minimum: 0, exclusiveMinimum: true }
         measurementUnit: { type: string }
         latitude: { type: number, format: double, minimum: -90, maximum: 90 }
@@ -967,7 +979,10 @@ components:
         elevationM: { type: number, format: double }
         avgAnnualRainfallMm: { type: number, format: double }
         soilType: { type: string, maxLength: 100 }
-        climateZone: { type: string, maxLength: 50 }
+        establishmentDate: { type: string, format: date }
+        ownershipType: { type: string, enum: [PRIVATE, STATE, COOPERATIVE, JOINT_VENTURE] }
+        ownerName: { type: string, maxLength: 200 }
+        managerName: { type: string, maxLength: 200 }
         status: { type: string, enum: [ACTIVE, INACTIVE, DECOMMISSIONED] }
         remarks: { type: string }
 
@@ -977,11 +992,10 @@ components:
         plantationId: { type: integer, readOnly: true }
         plantationCode: { type: string }
         plantationName: { type: string }
-        companyName: { type: string }
         region: { type: string }
         district: { type: string }
+        stateProvince: { type: string }
         country: { type: string }
-        address: { type: string }
         totalSurfaceArea: { type: number, format: double }
         measurementUnit: { type: string }
         latitude: { type: number, format: double }
@@ -989,7 +1003,10 @@ components:
         elevationM: { type: number, format: double }
         avgAnnualRainfallMm: { type: number, format: double }
         soilType: { type: string }
-        climateZone: { type: string }
+        establishmentDate: { type: string, format: date }
+        ownershipType: { type: string }
+        ownerName: { type: string }
+        managerName: { type: string }
         status: { type: string }
         remarks: { type: string }
         createdAt: { type: string, format: date-time, readOnly: true }
@@ -1137,6 +1154,8 @@ components:
         remarks: { type: string }
         createdAt: { type: string, format: date-time, readOnly: true }
         updatedAt: { type: string, format: date-time, readOnly: true }
+        createdBy: { type: string, readOnly: true }
+        updatedBy: { type: string, readOnly: true }
 
     PagedFieldResponse:
       type: object
@@ -1367,6 +1386,8 @@ components:
         remarks: { type: string }
         createdAt: { type: string, format: date-time, readOnly: true }
         updatedAt: { type: string, format: date-time, readOnly: true }
+        createdBy: { type: string, readOnly: true }
+        updatedBy: { type: string, readOnly: true }
 
     PagedNurseryResponse:
       type: object
@@ -1455,6 +1476,8 @@ components:
         remarks: { type: string }
         createdAt: { type: string, format: date-time, readOnly: true }
         updatedAt: { type: string, format: date-time, readOnly: true }
+        createdBy: { type: string, readOnly: true }
+        updatedBy: { type: string, readOnly: true }
 
     PagedLandUseResponse:
       type: object
@@ -1470,21 +1493,24 @@ components:
     # ══════════ ANNUAL SNAPSHOT ══════════
     AnnualSnapshotCreateRequest:
       type: object
-      required: [snapshotYear, snapshotDate, totalSurfaceArea, plantedArea, matureArea, immatureArea]
+      required: [snapshotYear, snapshotDate, totalSurfaceArea, measurementUnit]
       properties:
         snapshotYear: { type: integer }
         snapshotDate: { type: string, format: date }
         totalSurfaceArea: { type: number, format: double }
-        plantedArea: { type: number, format: double }
-        matureArea: { type: number, format: double }
-        immatureArea: { type: number, format: double }
-        nurseryArea: { type: number, format: double }
-        buildingAndInfraArea: { type: number, format: double }
-        otherNonPlantedArea: { type: number, format: double }
-        totalTreesPlanted: { type: integer }
-        averageStandPerHa: { type: integer }
-        numberOfActiveDivisions: { type: integer }
-        numberOfActiveFields: { type: integer }
+        totalPlantedArea: { type: number, format: double }
+        totalBuildingInfraArea: { type: number, format: double }
+        totalRoadArea: { type: number, format: double }
+        totalSwapArea: { type: number, format: double }
+        totalRockyArea: { type: number, format: double }
+        totalUncultivatedArea: { type: number, format: double }
+        totalHvcArea: { type: number, format: double }
+        totalWaterBodiesArea: { type: number, format: double }
+        totalMiscArea: { type: number, format: double }
+        totalNurseryArea: { type: number, format: double }
+        totalImmatureArea: { type: number, format: double }
+        totalMatureArea: { type: number, format: double }
+        measurementUnit: { type: string, description: 'Lookup code from lu_measurement_unit (e.g., HA, AC)' }
         remarks: { type: string }
 
     AnnualSnapshotResponse:
@@ -1495,18 +1521,22 @@ components:
         snapshotYear: { type: integer }
         snapshotDate: { type: string, format: date }
         totalSurfaceArea: { type: number, format: double }
-        plantedArea: { type: number, format: double }
-        matureArea: { type: number, format: double }
-        immatureArea: { type: number, format: double }
-        nurseryArea: { type: number, format: double }
-        buildingAndInfraArea: { type: number, format: double }
-        otherNonPlantedArea: { type: number, format: double }
-        totalTreesPlanted: { type: integer }
-        averageStandPerHa: { type: integer }
-        numberOfActiveDivisions: { type: integer }
-        numberOfActiveFields: { type: integer }
+        totalPlantedArea: { type: number, format: double }
+        totalBuildingInfraArea: { type: number, format: double }
+        totalRoadArea: { type: number, format: double }
+        totalSwapArea: { type: number, format: double }
+        totalRockyArea: { type: number, format: double }
+        totalUncultivatedArea: { type: number, format: double }
+        totalHvcArea: { type: number, format: double }
+        totalWaterBodiesArea: { type: number, format: double }
+        totalMiscArea: { type: number, format: double }
+        totalNurseryArea: { type: number, format: double }
+        totalImmatureArea: { type: number, format: double }
+        totalMatureArea: { type: number, format: double }
+        measurementUnit: { type: string }
         remarks: { type: string }
         createdAt: { type: string, format: date-time, readOnly: true }
+        createdBy: { type: string, readOnly: true }
 
     PagedAnnualSnapshotResponse:
       type: object
@@ -1543,6 +1573,5 @@ components:
         code: { type: string }
         name: { type: string }
         description: { type: string }
-        cutFrequency: { type: string, description: 'e.g., d2 = every 2 days, d3 = every 3 days' }
-        panelNotation: { type: string }
+        frequencyNotation: { type: string, description: 'Frequency notation (e.g., S/2 d2, S/2 d3)' }
         isActive: { type: boolean }
