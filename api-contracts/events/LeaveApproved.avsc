@@ -1,0 +1,18 @@
+{
+  "type": "record",
+  "name": "LeaveApproved",
+  "namespace": "com.rpms.events.workforce",
+  "doc": "Emitted when a worker's leave application is approved in Module 4. Used by attendance-service to mark expected absences and skip late/absent penalties. Partition key: workerId.",
+  "fields": [
+    { "name": "metadata", "type": "com.rpms.events.EventMetadata" },
+    { "name": "leaveId", "type": "int" },
+    { "name": "workerId", "type": "int" },
+    { "name": "leaveTypeCode", "type": "string" },
+    { "name": "leaveStartDate", "type": { "type": "int", "logicalType": "date" } },
+    { "name": "leaveEndDate", "type": { "type": "int", "logicalType": "date" } },
+    { "name": "totalDays", "type": "int" },
+    { "name": "isPaid", "type": "boolean" },
+    { "name": "approvedBy", "type": ["null", "int"], "default": null },
+    { "name": "approvedAt", "type": { "type": "long", "logicalType": "timestamp-millis" } }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "type": "record",
+  "name": "WorkerStatusChanged",
+  "namespace": "com.rpms.events.workforce",
+  "doc": "Emitted when a worker's employment status changes (e.g. PROBATION -> ACTIVE -> RESIGNED) in Module 4. Auto-logged by DB trigger fn_log_worker_status_change. Partition key: workerId. Consumed by: tapping-service (M3), activity-service (M5), attendance-service (M6).",
+  "fields": [
+    { "name": "metadata", "type": "com.rpms.events.EventMetadata" },
+    { "name": "workerId", "type": "int" },
+    { "name": "employeeCode", "type": "string" },
+    { "name": "plantationId", "type": "int" },
+    { "name": "oldStatus", "type": ["null", "string"], "default": null },
+    { "name": "newStatus", "type": "string" },
+    { "name": "changeDate", "type": { "type": "int", "logicalType": "date" } },
+    { "name": "effectiveDate", "type": { "type": "int", "logicalType": "date" } },
+    { "name": "reason", "type": ["null", "string"], "default": null }
+  ]
+}

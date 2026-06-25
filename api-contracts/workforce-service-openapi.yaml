@@ -1,0 +1,1886 @@
+openapi: 3.0.3
+info:
+  title: RPMS Workforce Service API
+  description: |
+    Module 4 — Workforce Management.
+    Manages worker registration, employment lifecycle, gang/team organization,
+    skill competency matrix, field assignment history, leave management,
+    training records, pay structure, next-of-kin, document management, and
+    occupational health & safety incidents.
+
+    **Key entity**: `worker` is the central record referenced by `tapper_id`
+    in Module 3 (tapping) and `worker_id` in Modules 5 (activity) and 6
+    (attendance).
+
+    **Framework**: Spring Boot 3 + Java 21 (ADR-002)
+    **Database**: PostgreSQL 16 (ADR-001)
+    **Repo**: rpms-mod-workforce
+    **Depends on**: Module 1 (plantation, division, field)
+  version: 1.0.0
+  contact:
+    name: RPMS Architecture Team
+  license:
+    name: Proprietary
+
+servers:
+  - url: /api/workforce
+    description: Behind API Gateway (rpms-platform)
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Workers
+    description: Core workforce entity — every employee, tapper, supervisor, manager
+  - name: Gangs
+    description: Tapper gangs / teams assigned to fields
+  - name: Worker Skills
+    description: Skill competency matrix per worker
+  - name: Field Assignments
+    description: Historical field/gang assignment tracking
+  - name: Next of Kin
+    description: Emergency contacts and beneficiaries
+  - name: Documents
+    description: Worker documents — IDs, certificates, contracts
+  - name: Leave
+    description: Leave applications, approval workflow, and balances
+  - name: Training
+    description: Training history — classroom, field, VR/MR, e-learning
+  - name: Pay Structure
+    description: Pay component structure per worker
+  - name: Safety Incidents
+    description: Occupational health & safety incident records
+  - name: Analytics
+    description: Cross-worker analytical views
+  - name: Lookups
+    description: Read-only reference data
+
+# ════════════════════════════════════════════════════════════════════
+# PATHS
+# ════════════════════════════════════════════════════════════════════
+paths:
+
+  # ─────────────────────── WORKERS ───────────────────────
+  /workers:
+    get:
+      tags: [Workers]
+      summary: List workers (filterable across plantation/division/category/status)
+      operationId: listWorkers
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
+        - name: plantationId
+          in: query
+          schema: { type: integer }
+        - name: divisionId
+          in: query
+          schema: { type: integer }
+        - name: fieldId
+          in: query
+          schema: { type: integer }
+        - name: gangId
+          in: query
+          schema: { type: integer }
+        - name: categoryCode
+          in: query
+          schema: { type: string }
+          description: Lookup code from lu_worker_category
+        - name: employmentTypeCode
+          in: query
+          schema: { type: string }
+          description: Lookup code from lu_employment_type
+        - name: workerStatus
+          in: query
+          schema: { type: string }
+          description: Lookup code from lu_worker_status
+        - name: search
+          in: query
+          schema: { type: string }
+          description: Free-text match on employeeCode / fullName
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedWorkerResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Workers]
+      summary: Register a new worker
+      operationId: createWorker
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkerCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkerResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /workers/{workerId}:
+    parameters:
+      - $ref: '#/components/parameters/WorkerIdPath'
+    get:
+      tags: [Workers]
+      summary: Get worker by ID
+      operationId: getWorker
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkerResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Workers]
+      summary: Update a worker
+      description: |
+        Changing `workerStatus` auto-appends an immutable record to
+        `worker_status_change_log` via a DB trigger.
+      operationId: updateWorker
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkerUpdateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkerResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /workers/{workerId}/profile:
+    parameters:
+      - $ref: '#/components/parameters/WorkerIdPath'
+    get:
+      tags: [Workers]
+      summary: Get full worker profile (from vw_worker_profile)
+      operationId: getWorkerProfile
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkerProfileResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /workers/{workerId}/status-history:
+    parameters:
+      - $ref: '#/components/parameters/WorkerIdPath'
+    get:
+      tags: [Workers]
+      summary: List status change history (immutable — auto-logged by DB trigger on status change)
+      operationId: listWorkerStatusHistory
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedWorkerStatusLogResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ─────────────────────── WORKER SKILLS ───────────────────────
+  /workers/{workerId}/skills:
+    parameters:
+      - $ref: '#/components/parameters/WorkerIdPath'
+    get:
+      tags: [Worker Skills]
+      summary: List a worker's skill competency matrix
+      operationId: listWorkerSkills
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedWorkerSkillResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Worker Skills]
+      summary: Record a skill assessment for a worker
+      operationId: createWorkerSkill
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkerSkillCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkerSkillResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /workers/{workerId}/skills/{skillId}:
+    parameters:
+      - $ref: '#/components/parameters/WorkerIdPath'
+      - name: skillId
+        in: path
+        required: true
+        schema: { type: integer }
+    put:
+      tags: [Worker Skills]
+      summary: Update a skill assessment (re-assessment, certification)
+      operationId: updateWorkerSkill
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkerSkillUpdateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkerSkillResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── FIELD ASSIGNMENTS ───────────────────────
+  /workers/{workerId}/field-assignments:
+    parameters:
+      - $ref: '#/components/parameters/WorkerIdPath'
+    get:
+      tags: [Field Assignments]
+      summary: List a worker's field assignment history
+      operationId: listWorkerFieldAssignments
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedFieldAssignmentResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Field Assignments]
+      summary: Assign a worker to a field (and optionally a gang)
+      operationId: createWorkerFieldAssignment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FieldAssignmentCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FieldAssignmentResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  # ─────────────────────── NEXT OF KIN ───────────────────────
+  /workers/{workerId}/next-of-kin:
+    parameters:
+      - $ref: '#/components/parameters/WorkerIdPath'
+    get:
+      tags: [Next of Kin]
+      summary: List a worker's next-of-kin / emergency contacts
+      operationId: listNextOfKin
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedNextOfKinResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Next of Kin]
+      summary: Add a next-of-kin / beneficiary record
+      operationId: createNextOfKin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NextOfKinCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NextOfKinResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /workers/{workerId}/next-of-kin/{kinId}:
+    parameters:
+      - $ref: '#/components/parameters/WorkerIdPath'
+      - name: kinId
+        in: path
+        required: true
+        schema: { type: integer }
+    put:
+      tags: [Next of Kin]
+      summary: Update a next-of-kin record
+      operationId: updateNextOfKin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NextOfKinCreateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NextOfKinResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── DOCUMENTS ───────────────────────
+  /workers/{workerId}/documents:
+    parameters:
+      - $ref: '#/components/parameters/WorkerIdPath'
+    get:
+      tags: [Documents]
+      summary: List a worker's documents
+      operationId: listWorkerDocuments
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - name: status
+          in: query
+          schema: { type: string, enum: [ACTIVE, EXPIRED, REVOKED, PENDING_VERIFICATION] }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedWorkerDocumentResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Documents]
+      summary: Upload a worker document
+      operationId: createWorkerDocument
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkerDocumentCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkerDocumentResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /workers/{workerId}/documents/{documentId}:
+    parameters:
+      - $ref: '#/components/parameters/WorkerIdPath'
+      - name: documentId
+        in: path
+        required: true
+        schema: { type: integer }
+    put:
+      tags: [Documents]
+      summary: Update / verify a worker document
+      operationId: updateWorkerDocument
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkerDocumentUpdateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkerDocumentResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── LEAVE ───────────────────────
+  /workers/{workerId}/leave:
+    parameters:
+      - $ref: '#/components/parameters/WorkerIdPath'
+    get:
+      tags: [Leave]
+      summary: List a worker's leave applications
+      operationId: listWorkerLeave
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
+        - name: approvalStatus
+          in: query
+          schema: { type: string, enum: [PENDING, APPROVED, REJECTED, CANCELLED] }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedWorkerLeaveResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Leave]
+      summary: Submit a leave application
+      operationId: createWorkerLeave
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkerLeaveCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkerLeaveResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /workers/{workerId}/leave/{leaveId}:
+    parameters:
+      - $ref: '#/components/parameters/WorkerIdPath'
+      - name: leaveId
+        in: path
+        required: true
+        schema: { type: integer }
+    put:
+      tags: [Leave]
+      summary: Approve, reject, or cancel a leave application
+      description: |
+        Transitioning `approvalStatus` to APPROVED or back to PENDING
+        auto-updates `worker_leave_balance.taken_days` / `pending_days`
+        via a DB trigger.
+      operationId: updateWorkerLeave
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkerLeaveUpdateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkerLeaveResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /workers/{workerId}/leave-balance:
+    parameters:
+      - $ref: '#/components/parameters/WorkerIdPath'
+    get:
+      tags: [Leave]
+      summary: List a worker's leave balances (per leave type per year)
+      operationId: listWorkerLeaveBalance
+      parameters:
+        - name: balanceYear
+          in: query
+          schema: { type: integer }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/WorkerLeaveBalanceResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ─────────────────────── TRAINING ───────────────────────
+  /workers/{workerId}/training:
+    parameters:
+      - $ref: '#/components/parameters/WorkerIdPath'
+    get:
+      tags: [Training]
+      summary: List a worker's training history
+      operationId: listWorkerTraining
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedWorkerTrainingResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Training]
+      summary: Record a training enrollment
+      operationId: createWorkerTraining
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkerTrainingCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkerTrainingResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /workers/{workerId}/training/{trainingId}:
+    parameters:
+      - $ref: '#/components/parameters/WorkerIdPath'
+      - name: trainingId
+        in: path
+        required: true
+        schema: { type: integer }
+    put:
+      tags: [Training]
+      summary: Update training outcome / assessment / certification
+      operationId: updateWorkerTraining
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkerTrainingUpdateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkerTrainingResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── PAY STRUCTURE ───────────────────────
+  /workers/{workerId}/pay-structure:
+    parameters:
+      - $ref: '#/components/parameters/WorkerIdPath'
+    get:
+      tags: [Pay Structure]
+      summary: List a worker's pay component structure
+      operationId: listWorkerPayStructure
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedPayStructureResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Pay Structure]
+      summary: Add a pay component to a worker's structure
+      operationId: createWorkerPayStructure
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PayStructureCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PayStructureResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /workers/{workerId}/pay-structure/{payStructureId}:
+    parameters:
+      - $ref: '#/components/parameters/WorkerIdPath'
+      - name: payStructureId
+        in: path
+        required: true
+        schema: { type: integer }
+    put:
+      tags: [Pay Structure]
+      summary: Update / end-date a pay component
+      operationId: updateWorkerPayStructure
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PayStructureUpdateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PayStructureResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── SAFETY INCIDENTS ───────────────────────
+  /workers/{workerId}/safety-incidents:
+    parameters:
+      - $ref: '#/components/parameters/WorkerIdPath'
+    get:
+      tags: [Safety Incidents]
+      summary: List a worker's safety incidents
+      operationId: listWorkerSafetyIncidents
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedSafetyIncidentResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Safety Incidents]
+      summary: Report a safety incident
+      operationId: createSafetyIncident
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SafetyIncidentCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SafetyIncidentResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /workers/{workerId}/safety-incidents/{incidentId}:
+    parameters:
+      - $ref: '#/components/parameters/WorkerIdPath'
+      - name: incidentId
+        in: path
+        required: true
+        schema: { type: integer }
+    put:
+      tags: [Safety Incidents]
+      summary: Update investigation / corrective action on a safety incident
+      operationId: updateSafetyIncident
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SafetyIncidentUpdateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SafetyIncidentResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── GANGS ───────────────────────
+  /gangs:
+    get:
+      tags: [Gangs]
+      summary: List gangs (filterable by plantation/division/field/status)
+      operationId: listGangs
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
+        - name: plantationId
+          in: query
+          schema: { type: integer }
+        - name: divisionId
+          in: query
+          schema: { type: integer }
+        - name: fieldId
+          in: query
+          schema: { type: integer }
+        - name: status
+          in: query
+          schema: { type: string, enum: [ACTIVE, INACTIVE, DISBANDED] }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedGangResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Gangs]
+      summary: Create a gang / team
+      operationId: createGang
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GangCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GangResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /gangs/{gangId}:
+    parameters:
+      - $ref: '#/components/parameters/GangIdPath'
+    get:
+      tags: [Gangs]
+      summary: Get gang by ID
+      operationId: getGang
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GangResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Gangs]
+      summary: Update a gang
+      description: |
+        `currentSize` is read-only — it is auto-synced from `worker.assigned_gang_id`
+        membership via a DB trigger and cannot be set directly.
+      operationId: updateGang
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GangUpdateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GangResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /gangs/{gangId}/roster-summary:
+    parameters:
+      - $ref: '#/components/parameters/GangIdPath'
+    get:
+      tags: [Gangs]
+      summary: Get gang roster summary (from vw_gang_roster)
+      description: Aggregated member counts and role mix. For the member list itself, use `GET /workers?gangId={gangId}`.
+      operationId: getGangRosterSummary
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GangRosterResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── ANALYTICS ───────────────────────
+  /analytics/expiring-documents:
+    get:
+      tags: [Analytics]
+      summary: Documents expired, expiring soon, or due for renewal (from vw_expiring_documents)
+      operationId: getExpiringDocuments
+      parameters:
+        - name: plantationCode
+          in: query
+          schema: { type: string }
+        - name: alertLevel
+          in: query
+          schema: { type: string, enum: [EXPIRED, EXPIRING_SOON, DUE_FOR_RENEWAL, OK] }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ExpiringDocumentResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /analytics/skill-gap:
+    get:
+      tags: [Analytics]
+      summary: Skill gap analysis by role (from vw_skill_gap_analysis)
+      operationId: getSkillGapAnalysis
+      parameters:
+        - name: plantationCode
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SkillGapResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ─────────────────────── LOOKUPS ───────────────────────
+  /lookups/worker-categories:
+    get:
+      tags: [Lookups]
+      summary: List worker category / role lookup
+      operationId: listWorkerCategories
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/WorkerCategoryLookup' }
+
+  /lookups/employment-types:
+    get:
+      tags: [Lookups]
+      summary: List employment type lookup
+      operationId: listEmploymentTypes
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/EmploymentTypeLookup' }
+
+  /lookups/worker-statuses:
+    get:
+      tags: [Lookups]
+      summary: List worker status lookup
+      operationId: listWorkerStatuses
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/WorkerStatusLookup' }
+
+  /lookups/skills:
+    get:
+      tags: [Lookups]
+      summary: List skill / competency lookup
+      operationId: listSkills
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SkillLookup' }
+
+  /lookups/proficiency-levels:
+    get:
+      tags: [Lookups]
+      summary: List proficiency level lookup
+      operationId: listProficiencyLevels
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ProficiencyLevelLookup' }
+
+  /lookups/leave-types:
+    get:
+      tags: [Lookups]
+      summary: List leave type lookup
+      operationId: listLeaveTypes
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/LeaveTypeLookup' }
+
+  /lookups/relationship-types:
+    get:
+      tags: [Lookups]
+      summary: List next-of-kin relationship type lookup
+      operationId: listRelationshipTypes
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RelationshipTypeLookup' }
+
+  /lookups/document-types:
+    get:
+      tags: [Lookups]
+      summary: List document type lookup
+      operationId: listDocumentTypes
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/DocumentTypeLookup' }
+
+  /lookups/pay-components:
+    get:
+      tags: [Lookups]
+      summary: List pay component lookup
+      operationId: listPayComponents
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PayComponentLookup' }
+
+  /lookups/training-types:
+    get:
+      tags: [Lookups]
+      summary: List training type lookup
+      operationId: listTrainingTypes
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TrainingTypeLookup' }
+
+# ════════════════════════════════════════════════════════════════════
+# COMPONENTS
+# ════════════════════════════════════════════════════════════════════
+components:
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Keycloak-issued JWT token
+
+  # ─────────────── SHARED PARAMETERS ───────────────
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      schema: { type: integer, default: 0, minimum: 0 }
+      description: Zero-based page number
+    SizeParam:
+      name: size
+      in: query
+      schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+      description: Page size
+    SortParam:
+      name: sort
+      in: query
+      schema: { type: string }
+      description: 'Sort field and direction (e.g., hireDate,desc)'
+    WorkerIdPath:
+      name: workerId
+      in: path
+      required: true
+      schema: { type: integer }
+    GangIdPath:
+      name: gangId
+      in: path
+      required: true
+      schema: { type: integer }
+
+  # ─────────────── SHARED RESPONSES ───────────────
+  responses:
+    BadRequest:
+      description: Validation error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Unauthorized:
+      description: Missing or invalid JWT token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Conflict:
+      description: Duplicate resource (unique constraint violation)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  # ─────────────── SCHEMAS ───────────────
+  schemas:
+
+    ErrorResponse:
+      type: object
+      properties:
+        timestamp: { type: string, format: date-time }
+        status: { type: integer }
+        error: { type: string }
+        message: { type: string }
+        path: { type: string }
+        fieldErrors:
+          type: array
+          items:
+            type: object
+            properties:
+              field: { type: string }
+              message: { type: string }
+
+    # ══════════ WORKER ══════════
+    WorkerCreateRequest:
+      type: object
+      required: [employeeCode, firstName, lastName, plantationId, categoryCode, employmentTypeCode, hireDate]
+      properties:
+        employeeCode: { type: string, maxLength: 30 }
+        firstName: { type: string, maxLength: 100 }
+        lastName: { type: string, maxLength: 100 }
+        dateOfBirth: { type: string, format: date }
+        gender: { type: string, enum: [MALE, FEMALE, OTHER] }
+        nationalId: { type: string, maxLength: 50 }
+        passportNumber: { type: string, maxLength: 50 }
+        nationality: { type: string, maxLength: 100 }
+        ethnicity: { type: string, maxLength: 100 }
+        maritalStatus: { type: string, enum: [SINGLE, MARRIED, WIDOWED, DIVORCED] }
+        bloodGroup: { type: string, enum: ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'] }
+        mobilePhone: { type: string, maxLength: 20 }
+        alternatePhone: { type: string, maxLength: 20 }
+        email: { type: string, maxLength: 200 }
+        permanentAddress: { type: string }
+        currentAddress: { type: string }
+        plantationId: { type: integer }
+        divisionId: { type: integer }
+        categoryCode: { type: string, description: 'Lookup code from lu_worker_category' }
+        employmentTypeCode: { type: string, description: 'Lookup code from lu_employment_type' }
+        workerStatus: { type: string, default: 'PROBATION', description: 'Lookup code from lu_worker_status' }
+        hireDate: { type: string, format: date }
+        probationEndDate: { type: string, format: date }
+        reportsToId: { type: integer }
+        primaryFieldId: { type: integer }
+        assignedGangId: { type: integer }
+        basePayAmount: { type: number, format: double }
+        payCurrency: { type: string, default: 'LKR' }
+        payFrequency: { type: string, enum: [DAILY, WEEKLY, BIWEEKLY, MONTHLY] }
+        bankName: { type: string, maxLength: 200 }
+        bankAccountNo: { type: string, maxLength: 50 }
+        bankBranch: { type: string, maxLength: 200 }
+        biometricId: { type: string, maxLength: 100 }
+        nfcBadgeUid: { type: string, maxLength: 100 }
+        gpsWearableUid: { type: string, maxLength: 100 }
+        photoUrl: { type: string }
+        remarks: { type: string }
+
+    WorkerUpdateRequest:
+      type: object
+      properties:
+        dateOfBirth: { type: string, format: date }
+        gender: { type: string, enum: [MALE, FEMALE, OTHER] }
+        nationalId: { type: string, maxLength: 50 }
+        passportNumber: { type: string, maxLength: 50 }
+        nationality: { type: string, maxLength: 100 }
+        ethnicity: { type: string, maxLength: 100 }
+        maritalStatus: { type: string, enum: [SINGLE, MARRIED, WIDOWED, DIVORCED] }
+        bloodGroup: { type: string, enum: ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'] }
+        divisionId: { type: integer }
+        categoryCode: { type: string }
+        employmentTypeCode: { type: string }
+        workerStatus: { type: string, description: 'Lookup code from lu_worker_status' }
+        confirmationDate: { type: string, format: date }
+        terminationDate: { type: string, format: date }
+        reportsToId: { type: integer }
+        primaryFieldId: { type: integer }
+        assignedGangId: { type: integer }
+        mobilePhone: { type: string, maxLength: 20 }
+        alternatePhone: { type: string, maxLength: 20 }
+        email: { type: string, maxLength: 200 }
+        permanentAddress: { type: string }
+        currentAddress: { type: string }
+        basePayAmount: { type: number, format: double }
+        payFrequency: { type: string, enum: [DAILY, WEEKLY, BIWEEKLY, MONTHLY] }
+        bankName: { type: string, maxLength: 200 }
+        bankAccountNo: { type: string, maxLength: 50 }
+        bankBranch: { type: string, maxLength: 200 }
+        biometricId: { type: string, maxLength: 100 }
+        nfcBadgeUid: { type: string, maxLength: 100 }
+        gpsWearableUid: { type: string, maxLength: 100 }
+        photoUrl: { type: string }
+        remarks: { type: string }
+
+    WorkerResponse:
+      type: object
+      properties:
+        workerId: { type: integer, readOnly: true }
+        employeeCode: { type: string }
+        firstName: { type: string }
+        lastName: { type: string }
+        fullName: { type: string, readOnly: true, description: "Generated column: firstName || ' ' || lastName" }
+        dateOfBirth: { type: string, format: date }
+        gender: { type: string }
+        nationalId: { type: string }
+        passportNumber: { type: string }
+        nationality: { type: string }
+        ethnicity: { type: string }
+        maritalStatus: { type: string }
+        bloodGroup: { type: string }
+        mobilePhone: { type: string }
+        alternatePhone: { type: string }
+        email: { type: string }
+        permanentAddress: { type: string }
+        currentAddress: { type: string }
+        plantationId: { type: integer }
+        divisionId: { type: integer }
+        categoryCode: { type: string }
+        categoryName: { type: string }
+        employmentTypeCode: { type: string }
+        employmentTypeName: { type: string }
+        workerStatus: { type: string }
+        workerStatusName: { type: string }
+        hireDate: { type: string, format: date }
+        probationEndDate: { type: string, format: date }
+        confirmationDate: { type: string, format: date }
+        terminationDate: { type: string, format: date }
+        reportsToId: { type: integer }
+        primaryFieldId: { type: integer }
+        assignedGangId: { type: integer }
+        basePayAmount: { type: number, format: double }
+        payCurrency: { type: string }
+        payFrequency: { type: string }
+        bankName: { type: string }
+        bankAccountNo: { type: string }
+        bankBranch: { type: string }
+        biometricId: { type: string }
+        nfcBadgeUid: { type: string }
+        gpsWearableUid: { type: string }
+        photoUrl: { type: string }
+        remarks: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+        createdBy: { type: string, readOnly: true }
+        updatedBy: { type: string, readOnly: true }
+
+    PagedWorkerResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/WorkerResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    WorkerProfileResponse:
+      type: object
+      properties:
+        workerId: { type: integer }
+        employeeCode: { type: string }
+        fullName: { type: string }
+        gender: { type: string }
+        dateOfBirth: { type: string, format: date }
+        age: { type: integer }
+        nationality: { type: string }
+        mobilePhone: { type: string }
+        plantationCode: { type: string }
+        plantationName: { type: string }
+        divisionCode: { type: string }
+        role: { type: string }
+        roleGroup: { type: string }
+        employmentTypeName: { type: string }
+        currentStatus: { type: string }
+        isActiveDuty: { type: boolean }
+        hireDate: { type: string, format: date }
+        yearsOfService: { type: integer }
+        primaryField: { type: string }
+        gangCode: { type: string }
+        gangName: { type: string }
+        reportsTo: { type: string }
+        basePayAmount: { type: number, format: double }
+        payCurrency: { type: string }
+        payFrequency: { type: string }
+        hasBiometric: { type: boolean }
+        hasNfcBadge: { type: boolean }
+
+    WorkerStatusLogResponse:
+      type: object
+      properties:
+        logId: { type: integer, readOnly: true }
+        workerId: { type: integer }
+        changeDate: { type: string, format: date }
+        fromStatus: { type: string }
+        toStatus: { type: string }
+        reason: { type: string }
+        effectiveDate: { type: string, format: date }
+        changedBy: { type: string }
+        fromPlantationId: { type: integer }
+        toPlantationId: { type: integer }
+        blockchainTxHash: { type: string, readOnly: true }
+        createdAt: { type: string, format: date-time, readOnly: true }
+
+    PagedWorkerStatusLogResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/WorkerStatusLogResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ WORKER SKILL ══════════
+    WorkerSkillCreateRequest:
+      type: object
+      required: [skillCode, proficiencyLevel, assessedDate]
+      properties:
+        skillCode: { type: string, description: 'Lookup code from lu_skill' }
+        proficiencyLevel: { type: string, description: 'Lookup code from lu_proficiency_level' }
+        assessedDate: { type: string, format: date }
+        assessedBy: { type: string, maxLength: 100 }
+        nextAssessmentDate: { type: string, format: date }
+        isCertified: { type: boolean, default: false }
+        certificationNumber: { type: string, maxLength: 50 }
+        certificationExpiry: { type: string, format: date }
+        remarks: { type: string }
+
+    WorkerSkillUpdateRequest:
+      type: object
+      properties:
+        proficiencyLevel: { type: string }
+        assessedDate: { type: string, format: date }
+        assessedBy: { type: string, maxLength: 100 }
+        nextAssessmentDate: { type: string, format: date }
+        isCertified: { type: boolean }
+        certificationNumber: { type: string, maxLength: 50 }
+        certificationExpiry: { type: string, format: date }
+        remarks: { type: string }
+
+    WorkerSkillResponse:
+      type: object
+      properties:
+        skillId: { type: integer, readOnly: true }
+        workerId: { type: integer }
+        skillCode: { type: string }
+        skillName: { type: string }
+        skillCategory: { type: string }
+        proficiencyLevel: { type: string }
+        proficiencyLevelName: { type: string }
+        assessedDate: { type: string, format: date }
+        assessedBy: { type: string }
+        nextAssessmentDate: { type: string, format: date }
+        isCertified: { type: boolean }
+        certificationNumber: { type: string }
+        certificationExpiry: { type: string, format: date }
+        remarks: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+
+    PagedWorkerSkillResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/WorkerSkillResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ FIELD ASSIGNMENT ══════════
+    FieldAssignmentCreateRequest:
+      type: object
+      required: [fieldId, assignmentType, effectiveFrom]
+      properties:
+        fieldId: { type: integer }
+        gangId: { type: integer }
+        assignmentType: { type: string, enum: [PRIMARY, SECONDARY, TEMPORARY, RELIEF] }
+        effectiveFrom: { type: string, format: date }
+        effectiveTo: { type: string, format: date }
+        assignedBy: { type: string, maxLength: 100 }
+        reason: { type: string, maxLength: 500 }
+
+    FieldAssignmentResponse:
+      type: object
+      properties:
+        assignmentId: { type: integer, readOnly: true }
+        workerId: { type: integer }
+        fieldId: { type: integer }
+        gangId: { type: integer }
+        assignmentType: { type: string }
+        effectiveFrom: { type: string, format: date }
+        effectiveTo: { type: string, format: date }
+        assignedBy: { type: string }
+        reason: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+
+    PagedFieldAssignmentResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/FieldAssignmentResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ NEXT OF KIN ══════════
+    NextOfKinCreateRequest:
+      type: object
+      required: [kinName, relationshipCode]
+      properties:
+        kinName: { type: string, maxLength: 200 }
+        relationshipCode: { type: string, description: 'Lookup code from lu_relationship_type' }
+        dateOfBirth: { type: string, format: date }
+        nationalId: { type: string, maxLength: 50 }
+        mobilePhone: { type: string, maxLength: 20 }
+        address: { type: string }
+        isEmergencyContact: { type: boolean, default: false }
+        isBeneficiary: { type: boolean, default: false }
+        beneficiaryPct: { type: number, format: double, minimum: 0, maximum: 100 }
+
+    NextOfKinResponse:
+      type: object
+      properties:
+        kinId: { type: integer, readOnly: true }
+        workerId: { type: integer }
+        kinName: { type: string }
+        relationshipCode: { type: string }
+        relationshipName: { type: string }
+        dateOfBirth: { type: string, format: date }
+        nationalId: { type: string }
+        mobilePhone: { type: string }
+        address: { type: string }
+        isEmergencyContact: { type: boolean }
+        isBeneficiary: { type: boolean }
+        beneficiaryPct: { type: number, format: double }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+
+    PagedNextOfKinResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/NextOfKinResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ WORKER DOCUMENT ══════════
+    WorkerDocumentCreateRequest:
+      type: object
+      required: [docTypeCode]
+      properties:
+        docTypeCode: { type: string, description: 'Lookup code from lu_document_type' }
+        documentNumber: { type: string, maxLength: 100 }
+        issuedDate: { type: string, format: date }
+        expiryDate: { type: string, format: date }
+        issuingAuthority: { type: string, maxLength: 200 }
+        fileUrl: { type: string }
+        fileName: { type: string, maxLength: 200 }
+        fileSizeBytes: { type: integer, format: int64 }
+        remarks: { type: string }
+
+    WorkerDocumentUpdateRequest:
+      type: object
+      properties:
+        documentNumber: { type: string, maxLength: 100 }
+        issuedDate: { type: string, format: date }
+        expiryDate: { type: string, format: date }
+        issuingAuthority: { type: string, maxLength: 200 }
+        isVerified: { type: boolean }
+        verifiedBy: { type: string, maxLength: 100 }
+        status: { type: string, enum: [ACTIVE, EXPIRED, REVOKED, PENDING_VERIFICATION] }
+        remarks: { type: string }
+
+    WorkerDocumentResponse:
+      type: object
+      properties:
+        documentId: { type: integer, readOnly: true }
+        workerId: { type: integer }
+        docTypeCode: { type: string }
+        docTypeName: { type: string }
+        documentNumber: { type: string }
+        issuedDate: { type: string, format: date }
+        expiryDate: { type: string, format: date }
+        issuingAuthority: { type: string }
+        fileUrl: { type: string }
+        fileName: { type: string }
+        fileSizeBytes: { type: integer, format: int64 }
+        isVerified: { type: boolean }
+        verifiedBy: { type: string }
+        verifiedAt: { type: string, format: date-time, readOnly: true }
+        status: { type: string }
+        remarks: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+
+    PagedWorkerDocumentResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/WorkerDocumentResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ LEAVE ══════════
+    WorkerLeaveCreateRequest:
+      type: object
+      required: [leaveTypeCode, leaveStartDate, leaveEndDate, totalDays]
+      properties:
+        leaveTypeCode: { type: string, description: 'Lookup code from lu_leave_type' }
+        leaveStartDate: { type: string, format: date }
+        leaveEndDate: { type: string, format: date }
+        totalDays: { type: integer, minimum: 1 }
+        reason: { type: string }
+        medicalCertUrl: { type: string }
+
+    WorkerLeaveUpdateRequest:
+      type: object
+      required: [approvalStatus]
+      properties:
+        approvalStatus: { type: string, enum: [PENDING, APPROVED, REJECTED, CANCELLED] }
+        approvedBy: { type: integer, description: 'worker_id of the approver' }
+        rejectionReason: { type: string }
+
+    WorkerLeaveResponse:
+      type: object
+      properties:
+        leaveId: { type: integer, readOnly: true }
+        workerId: { type: integer }
+        leaveTypeCode: { type: string }
+        leaveTypeName: { type: string }
+        leaveStartDate: { type: string, format: date }
+        leaveEndDate: { type: string, format: date }
+        totalDays: { type: integer }
+        reason: { type: string }
+        approvalStatus: { type: string }
+        approvedBy: { type: integer }
+        approvedAt: { type: string, format: date-time, readOnly: true }
+        rejectionReason: { type: string }
+        medicalCertUrl: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+
+    PagedWorkerLeaveResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/WorkerLeaveResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    WorkerLeaveBalanceResponse:
+      type: object
+      properties:
+        balanceId: { type: integer, readOnly: true }
+        workerId: { type: integer }
+        leaveTypeCode: { type: string }
+        leaveTypeName: { type: string }
+        balanceYear: { type: integer }
+        entitledDays: { type: number, format: double }
+        takenDays: { type: number, format: double }
+        pendingDays: { type: number, format: double }
+        remainingDays: { type: number, format: double, readOnly: true, description: 'Generated column: entitled - taken - pending' }
+        carriedForward: { type: number, format: double }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+
+    # ══════════ TRAINING ══════════
+    WorkerTrainingCreateRequest:
+      type: object
+      required: [trainingTypeCode, startDate]
+      properties:
+        trainingTypeCode: { type: string, description: 'Lookup code from lu_training_type' }
+        trainingTitle: { type: string, maxLength: 200 }
+        startDate: { type: string, format: date }
+        endDate: { type: string, format: date }
+        durationDays: { type: integer }
+        trainerName: { type: string, maxLength: 200 }
+        trainingLocation: { type: string, maxLength: 200 }
+        trainingMethod:
+          type: string
+          enum: [CLASSROOM, FIELD_PRACTICAL, ON_JOB, VR_SIMULATION, MR_TRAINING, E_LEARNING, HYBRID]
+        trainingCost: { type: number, format: double }
+        currencyCode: { type: string, default: 'LKR' }
+        remarks: { type: string }
+
+    WorkerTrainingUpdateRequest:
+      type: object
+      properties:
+        endDate: { type: string, format: date }
+        assessmentScore: { type: number, format: double }
+        passed: { type: boolean }
+        certificateNumber: { type: string, maxLength: 50 }
+        certificateExpiry: { type: string, format: date }
+        certificateUrl: { type: string }
+        remarks: { type: string }
+
+    WorkerTrainingResponse:
+      type: object
+      properties:
+        trainingId: { type: integer, readOnly: true }
+        workerId: { type: integer }
+        trainingTypeCode: { type: string }
+        trainingTypeName: { type: string }
+        trainingTitle: { type: string }
+        startDate: { type: string, format: date }
+        endDate: { type: string, format: date }
+        durationDays: { type: integer }
+        trainerName: { type: string }
+        trainingLocation: { type: string }
+        trainingMethod: { type: string }
+        assessmentScore: { type: number, format: double }
+        passed: { type: boolean }
+        certificateNumber: { type: string }
+        certificateExpiry: { type: string, format: date }
+        certificateUrl: { type: string }
+        trainingCost: { type: number, format: double }
+        currencyCode: { type: string }
+        remarks: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+
+    PagedWorkerTrainingResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/WorkerTrainingResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ PAY STRUCTURE ══════════
+    PayStructureCreateRequest:
+      type: object
+      required: [componentCode, amount, frequency, effectiveFrom]
+      properties:
+        componentCode: { type: string, description: 'Lookup code from lu_pay_component' }
+        amount: { type: number, format: double }
+        currencyCode: { type: string, default: 'LKR' }
+        frequency: { type: string, enum: [PER_DAY, PER_MONTH, PER_KG, PER_TREE, ONE_TIME] }
+        effectiveFrom: { type: string, format: date }
+        effectiveTo: { type: string, format: date }
+        remarks: { type: string }
+
+    PayStructureUpdateRequest:
+      type: object
+      properties:
+        amount: { type: number, format: double }
+        effectiveTo: { type: string, format: date }
+        remarks: { type: string }
+
+    PayStructureResponse:
+      type: object
+      properties:
+        payStructureId: { type: integer, readOnly: true }
+        workerId: { type: integer }
+        componentCode: { type: string }
+        componentName: { type: string }
+        componentType: { type: string }
+        amount: { type: number, format: double }
+        currencyCode: { type: string }
+        frequency: { type: string }
+        effectiveFrom: { type: string, format: date }
+        effectiveTo: { type: string, format: date }
+        remarks: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+
+    PagedPayStructureResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/PayStructureResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ SAFETY INCIDENT ══════════
+    SafetyIncidentCreateRequest:
+      type: object
+      required: [plantationId, incidentDate, incidentType, severity, description]
+      properties:
+        plantationId: { type: integer }
+        fieldId: { type: integer }
+        incidentDate: { type: string, format: date }
+        incidentTime: { type: string, format: time }
+        incidentType:
+          type: string
+          enum: [INJURY, NEAR_MISS, SNAKE_BITE, CHEMICAL_EXPOSURE, FALL, CUT_WOUND,
+                 EQUIPMENT_ACCIDENT, HEAT_STROKE, INSECT_STING, VEHICLE_ACCIDENT, OTHER]
+        severity: { type: string, enum: [MINOR, MODERATE, SERIOUS, FATAL] }
+        description: { type: string }
+        bodyPartAffected: { type: string, maxLength: 100 }
+        firstAidGiven: { type: boolean, default: false }
+        hospitalReferral: { type: boolean, default: false }
+        hospitalName: { type: string, maxLength: 200 }
+        daysLost: { type: integer, default: 0 }
+        reportedToAuthority: { type: boolean, default: false }
+        authorityReportRef: { type: string, maxLength: 100 }
+        photoUrls:
+          type: array
+          items: { type: string }
+        witnessNames: { type: string }
+
+    SafetyIncidentUpdateRequest:
+      type: object
+      properties:
+        daysLost: { type: integer }
+        rootCause: { type: string }
+        correctiveAction: { type: string }
+        investigatedBy: { type: string, maxLength: 100 }
+        investigationDate: { type: string, format: date }
+        reportedToAuthority: { type: boolean }
+        authorityReportRef: { type: string, maxLength: 100 }
+
+    SafetyIncidentResponse:
+      type: object
+      properties:
+        incidentId: { type: integer, readOnly: true }
+        workerId: { type: integer }
+        plantationId: { type: integer }
+        fieldId: { type: integer }
+        incidentDate: { type: string, format: date }
+        incidentTime: { type: string, format: time }
+        incidentType: { type: string }
+        severity: { type: string }
+        description: { type: string }
+        bodyPartAffected: { type: string }
+        firstAidGiven: { type: boolean }
+        hospitalReferral: { type: boolean }
+        hospitalName: { type: string }
+        daysLost: { type: integer }
+        rootCause: { type: string }
+        correctiveAction: { type: string }
+        investigatedBy: { type: string }
+        investigationDate: { type: string, format: date }
+        reportedToAuthority: { type: boolean }
+        authorityReportRef: { type: string }
+        photoUrls:
+          type: array
+          items: { type: string }
+        witnessNames: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+
+    PagedSafetyIncidentResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/SafetyIncidentResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ GANG ══════════
+    GangCreateRequest:
+      type: object
+      required: [plantationId, gangCode]
+      properties:
+        plantationId: { type: integer }
+        divisionId: { type: integer }
+        gangCode: { type: string, maxLength: 30 }
+        gangName: { type: string, maxLength: 100 }
+        leaderWorkerId: { type: integer }
+        primaryFieldId: { type: integer }
+        secondaryFieldIds:
+          type: array
+          items: { type: integer }
+        targetSize: { type: integer, minimum: 1 }
+        remarks: { type: string }
+
+    GangUpdateRequest:
+      type: object
+      properties:
+        divisionId: { type: integer }
+        gangName: { type: string, maxLength: 100 }
+        leaderWorkerId: { type: integer }
+        primaryFieldId: { type: integer }
+        secondaryFieldIds:
+          type: array
+          items: { type: integer }
+        targetSize: { type: integer, minimum: 1 }
+        status: { type: string, enum: [ACTIVE, INACTIVE, DISBANDED] }
+        remarks: { type: string }
+
+    GangResponse:
+      type: object
+      properties:
+        gangId: { type: integer, readOnly: true }
+        plantationId: { type: integer }
+        divisionId: { type: integer }
+        gangCode: { type: string }
+        gangName: { type: string }
+        leaderWorkerId: { type: integer }
+        leaderName: { type: string, readOnly: true }
+        primaryFieldId: { type: integer }
+        secondaryFieldIds:
+          type: array
+          items: { type: integer }
+        targetSize: { type: integer }
+        currentSize: { type: integer, readOnly: true, description: 'Auto-synced from worker.assigned_gang_id membership' }
+        status: { type: string }
+        remarks: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+
+    PagedGangResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/GangResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    GangRosterResponse:
+      type: object
+      properties:
+        gangId: { type: integer }
+        gangCode: { type: string }
+        gangName: { type: string }
+        plantationCode: { type: string }
+        divisionCode: { type: string }
+        primaryField: { type: string }
+        gangLeader: { type: string }
+        targetSize: { type: integer }
+        currentSize: { type: integer }
+        actualMembers: { type: integer }
+        activeMembers: { type: integer }
+        rolesInGang: { type: string }
+
+    # ══════════ ANALYTICS ══════════
+    ExpiringDocumentResponse:
+      type: object
+      properties:
+        employeeCode: { type: string }
+        fullName: { type: string }
+        plantationCode: { type: string }
+        docTypeName: { type: string }
+        documentNumber: { type: string }
+        expiryDate: { type: string, format: date }
+        daysUntilExpiry: { type: integer }
+        alertLevel: { type: string, enum: [EXPIRED, EXPIRING_SOON, DUE_FOR_RENEWAL, OK] }
+
+    SkillGapResponse:
+      type: object
+      properties:
+        plantationCode: { type: string }
+        role: { type: string }
+        skillName: { type: string }
+        skillCategory: { type: string }
+        totalWorkersInRole: { type: integer }
+        workersWithSkill: { type: integer }
+        skillGap: { type: integer }
+        avgProficiency: { type: number, format: double }
+        certifiedCount: { type: integer }
+        expiredCerts: { type: integer }
+
+    # ══════════ LOOKUPS ══════════
+    LookupItem:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        description: { type: string }
+        isActive: { type: boolean }
+
+    WorkerCategoryLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        categoryGroup: { type: string, enum: [FIELD, FACTORY, ADMINISTRATIVE, MANAGEMENT, TECHNICAL, SUPPORT] }
+        description: { type: string }
+        isActive: { type: boolean }
+
+    EmploymentTypeLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        description: { type: string }
+        isActive: { type: boolean }
+
+    WorkerStatusLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        isActiveDuty: { type: boolean }
+        description: { type: string }
+        isActive: { type: boolean }
+
+    RelationshipTypeLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        isActive: { type: boolean }
+
+    SkillLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        skillCategory:
+          type: string
+          enum: [TAPPING, FIELD_OPS, NURSERY, FACTORY, MACHINERY, SAFETY, QUALITY, SUPERVISORY, IT, OTHER]
+        description: { type: string }
+        isActive: { type: boolean }
+
+    ProficiencyLevelLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        levelScore: { type: integer, minimum: 1, maximum: 5 }
+        description: { type: string }
+
+    LeaveTypeLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        isPaid: { type: boolean }
+        maxDaysPerYear: { type: integer }
+        requiresMedicalCert: { type: boolean }
+        description: { type: string }
+        isActive: { type: boolean }
+
+    DocumentTypeLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        isMandatory: { type: boolean }
+        validityMonths: { type: integer, description: 'null = no expiry' }
+        description: { type: string }
+        isActive: { type: boolean }
+
+    PayComponentLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        componentType: { type: string, enum: [EARNING, DEDUCTION, ALLOWANCE, BONUS, STATUTORY] }
+        isTaxable: { type: boolean }
+        description: { type: string }
+        isActive: { type: boolean }
+
+    TrainingTypeLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        category:
+          type: string
+          enum: [INDUCTION, TAPPING, SAFETY, TECHNICAL, QUALITY, SUPERVISORY, REFRESHER, OTHER]
+        typicalDurationDays: { type: integer }
+        isMandatory: { type: boolean }
+        description: { type: string }
+        isActive: { type: boolean }
