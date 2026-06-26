@@ -1,0 +1,1536 @@
+openapi: 3.0.3
+info:
+  title: RPMS Daily Activity Service API
+  description: |
+    Module 5 — Daily Activity Monitoring.
+    Manages the daily work plan, all non-tapping (and tapping cross-referenced)
+    plantation activities, multi-worker assignment, material/input consumption,
+    geo-tagged photo evidence with AI analysis, supervisor inspections with
+    checklist scoring, and end-of-day rollup summaries.
+
+    **Spatial**: PostGIS Point on `daily_activity` (start location), `activity_photo_evidence`,
+    and `supervisor_inspection` (auto-synced from lat/lon by a DB trigger). `daily_activity`
+    also carries an optional PostGIS LineString GPS route. GPS coordinates exposed as
+    latitude/longitude pairs in DTOs, never raw WKT/GeoJSON.
+
+    **Framework**: Quarkus 3 + Java 21 (ADR-002)
+    **Database**: PostgreSQL 16 + PostGIS (ADR-001)
+    **Repo**: rpms-mod-activity
+    **Depends on**: Module 1 (plantation, division, field, nursery), Module 3
+    (tapping_task — cross-module ID reference only, no FK), Module 4 (worker, gang —
+    cross-module ID reference only, no FK)
+  version: 1.0.0
+  contact:
+    name: RPMS Architecture Team
+  license:
+    name: Proprietary
+
+servers:
+  - url: /api/activity
+    description: Behind API Gateway (rpms-platform)
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Daily Work Plans
+    description: Top-level daily operational plan per plantation/division
+  - name: Daily Activities
+    description: Core operational activity record — covers all plantation work types
+  - name: Worker Assignments
+    description: Individual worker assignment within a multi-person activity
+  - name: Material Usage
+    description: Materials/inputs consumed during an activity, with variance tracking
+  - name: Photo Evidence
+    description: Geo-tagged photo evidence with AI analysis (immutable)
+  - name: Supervisor Inspections
+    description: Field inspections — routine, spot checks, quality audits
+  - name: Checklist Responses
+    description: Individual checklist item responses within an inspection
+  - name: Activity Summary
+    description: End-of-day rollup per plantation/division (read-only, computed)
+  - name: Materials
+    description: Material/input master catalog
+  - name: Analytics
+    description: Cross-activity analytical views
+  - name: Lookups
+    description: Read-only reference data
+
+# ════════════════════════════════════════════════════════════════════
+# PATHS
+# ════════════════════════════════════════════════════════════════════
+paths:
+
+  # ─────────────────────── DAILY WORK PLANS ───────────────────────
+  /daily-work-plans:
+    get:
+      tags: [Daily Work Plans]
+      summary: List daily work plans
+      operationId: listDailyWorkPlans
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
+        - name: plantationId
+          in: query
+          schema: { type: integer }
+        - name: divisionId
+          in: query
+          schema: { type: integer }
+        - name: planDate
+          in: query
+          schema: { type: string, format: date }
+        - name: status
+          in: query
+          schema: { type: string, enum: [DRAFT, PUBLISHED, IN_PROGRESS, COMPLETED, CANCELLED] }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedDailyWorkPlanResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Daily Work Plans]
+      summary: Create a daily work plan
+      operationId: createDailyWorkPlan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DailyWorkPlanCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DailyWorkPlanResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /daily-work-plans/{planId}:
+    parameters:
+      - $ref: '#/components/parameters/PlanIdPath'
+    get:
+      tags: [Daily Work Plans]
+      summary: Get work plan by ID
+      operationId: getDailyWorkPlan
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DailyWorkPlanResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Daily Work Plans]
+      summary: Update a daily work plan
+      description: |
+        `totalActivitiesPlanned`, `totalActivitiesCompleted`, `totalWorkersDeployed`,
+        and `completionRatePct` are server-computed by a DB trigger
+        (fn_sync_plan_counts) from the linked `daily_activity` rows — do not send
+        them; any value sent is overwritten.
+      operationId: updateDailyWorkPlan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DailyWorkPlanUpdateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DailyWorkPlanResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── DAILY ACTIVITIES ───────────────────────
+  /daily-activities:
+    get:
+      tags: [Daily Activities]
+      summary: List daily activities (filterable across plantation/field/worker/gang/date/status/category)
+      operationId: listDailyActivities
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
+        - name: planId
+          in: query
+          schema: { type: integer }
+        - name: plantationId
+          in: query
+          schema: { type: integer }
+        - name: fieldId
+          in: query
+          schema: { type: integer }
+        - name: assignedWorkerId
+          in: query
+          schema: { type: integer }
+        - name: assignedGangId
+          in: query
+          schema: { type: integer }
+        - name: activityDate
+          in: query
+          schema: { type: string, format: date }
+        - name: categoryCode
+          in: query
+          schema: { type: string, description: 'Lookup code from lu_activity_category' }
+        - name: activityTypeCode
+          in: query
+          schema: { type: string, description: 'Lookup code from lu_activity_type' }
+        - name: status
+          in: query
+          schema: { type: string, description: 'Lookup code from lu_activity_status' }
+        - $ref: '#/components/parameters/LatParam'
+        - $ref: '#/components/parameters/LonParam'
+        - $ref: '#/components/parameters/RadiusKmParam'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedDailyActivityResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Daily Activities]
+      summary: Create / plan a daily activity
+      operationId: createDailyActivity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DailyActivityCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DailyActivityResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /daily-activities/{activityId}:
+    parameters:
+      - $ref: '#/components/parameters/ActivityIdPath'
+    get:
+      tags: [Daily Activities]
+      summary: Get activity by ID
+      operationId: getDailyActivity
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DailyActivityResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Daily Activities]
+      summary: Update activity execution / completion details
+      description: |
+        Updating `targetQuantity`/`actualQuantity` auto-recalculates the read-only
+        `completionPct` via a DB trigger (fn_calc_completion_pct). Setting both
+        `actualStartTime` and `actualEndTime` auto-derives `actualDurationHours`,
+        and combined with `workersDeployed` auto-derives `manDays` — do not send
+        these three; any value sent is overwritten. Setting `startGpsLatitude`/
+        `startGpsLongitude` auto-syncs the PostGIS point. Updating `status` to a
+        terminal value (COMPLETED, PARTIAL, CANCELLED) re-syncs the parent
+        `daily_work_plan` summary counters.
+      operationId: updateDailyActivity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DailyActivityUpdateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DailyActivityResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── WORKER ASSIGNMENTS ───────────────────────
+  /daily-activities/{activityId}/worker-assignments:
+    parameters:
+      - $ref: '#/components/parameters/ActivityIdPath'
+    get:
+      tags: [Worker Assignments]
+      summary: List worker assignments for an activity
+      operationId: listActivityWorkerAssignments
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedWorkerAssignmentResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Worker Assignments]
+      summary: Assign a worker to an activity
+      operationId: createActivityWorkerAssignment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkerAssignmentCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkerAssignmentResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /worker-assignments/{assignmentId}:
+    parameters:
+      - $ref: '#/components/parameters/AssignmentIdPath'
+    put:
+      tags: [Worker Assignments]
+      summary: Update worker check-in/out and individual output
+      operationId: updateActivityWorkerAssignment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkerAssignmentUpdateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkerAssignmentResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── MATERIAL USAGE ───────────────────────
+  /daily-activities/{activityId}/material-usage:
+    parameters:
+      - $ref: '#/components/parameters/ActivityIdPath'
+    get:
+      tags: [Material Usage]
+      summary: List material usage for an activity
+      operationId: listActivityMaterialUsage
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedMaterialUsageResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Material Usage]
+      summary: Record material consumed during an activity
+      description: |
+        `variancePct` and `totalCost` are server-computed by a DB trigger
+        (fn_calc_material_variance) from `plannedQuantity`/`actualQuantity`/`unitCost` —
+        do not send them; any value sent is overwritten.
+      operationId: createActivityMaterialUsage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MaterialUsageCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MaterialUsageResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ─────────────────────── PHOTO EVIDENCE ───────────────────────
+  /daily-activities/{activityId}/photos:
+    parameters:
+      - $ref: '#/components/parameters/ActivityIdPath'
+    get:
+      tags: [Photo Evidence]
+      summary: List photo evidence for an activity
+      operationId: listActivityPhotoEvidence
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - name: photoType
+          in: query
+          schema: { type: string, enum: [BEFORE, DURING, AFTER, ISSUE, EQUIPMENT, MATERIAL, WEATHER, OTHER] }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedPhotoEvidenceResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Photo Evidence]
+      summary: Upload photo evidence (immutable — append-only)
+      description: |
+        Setting `gpsLatitude`/`gpsLongitude` auto-syncs the PostGIS point via a DB
+        trigger (fn_photo_sync_gps). `aiAnalysisResult` and `aiConfidenceScore` are
+        populated asynchronously by the AI photo analysis pipeline after upload —
+        not settable on create.
+      operationId: createActivityPhotoEvidence
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PhotoEvidenceCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PhotoEvidenceResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ─────────────────────── SUPERVISOR INSPECTIONS ───────────────────────
+  /supervisor-inspections:
+    get:
+      tags: [Supervisor Inspections]
+      summary: List supervisor inspections
+      operationId: listSupervisorInspections
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
+        - name: plantationId
+          in: query
+          schema: { type: integer }
+        - name: fieldId
+          in: query
+          schema: { type: integer }
+        - name: activityId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: inspectorId
+          in: query
+          schema: { type: integer }
+        - name: inspectionDate
+          in: query
+          schema: { type: string, format: date }
+        - name: inspectionType
+          in: query
+          schema: { type: string, enum: [ROUTINE, SPOT_CHECK, QUALITY_AUDIT, SAFETY_WALK, POST_ACTIVITY, COMPLAINT] }
+        - $ref: '#/components/parameters/LatParam'
+        - $ref: '#/components/parameters/LonParam'
+        - $ref: '#/components/parameters/RadiusKmParam'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedSupervisorInspectionResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Supervisor Inspections]
+      summary: Record a supervisor inspection
+      description: |
+        Setting `gpsLatitude`/`gpsLongitude` auto-syncs the PostGIS point via a DB
+        trigger (fn_insp_sync_gps).
+      operationId: createSupervisorInspection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SupervisorInspectionCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SupervisorInspectionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /supervisor-inspections/{inspectionId}:
+    parameters:
+      - $ref: '#/components/parameters/InspectionIdPath'
+    get:
+      tags: [Supervisor Inspections]
+      summary: Get inspection by ID
+      operationId: getSupervisorInspection
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SupervisorInspectionResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Supervisor Inspections]
+      summary: Update inspection follow-up status
+      operationId: updateSupervisorInspection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SupervisorInspectionUpdateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SupervisorInspectionResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── CHECKLIST RESPONSES ───────────────────────
+  /supervisor-inspections/{inspectionId}/checklist-responses:
+    parameters:
+      - $ref: '#/components/parameters/InspectionIdPath'
+    get:
+      tags: [Checklist Responses]
+      summary: List checklist responses for an inspection
+      operationId: listChecklistResponses
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ChecklistResponseResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Checklist Responses]
+      summary: Record a checklist item response
+      operationId: createChecklistResponse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChecklistResponseCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChecklistResponseResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  # ─────────────────────── ACTIVITY SUMMARY ───────────────────────
+  /activity-summaries:
+    get:
+      tags: [Activity Summary]
+      summary: List end-of-day activity summaries (read-only, computed by scheduled aggregation)
+      operationId: listDailyActivitySummaries
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - name: plantationId
+          in: query
+          schema: { type: integer }
+        - name: divisionId
+          in: query
+          schema: { type: integer }
+        - name: summaryDate
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedDailyActivitySummaryResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ─────────────────────── MATERIALS ───────────────────────
+  /materials:
+    get:
+      tags: [Materials]
+      summary: List material/input master catalog
+      operationId: listMaterials
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - name: materialCategory
+          in: query
+          schema:
+            type: string
+            enum: [FERTILIZER, HERBICIDE, FUNGICIDE, INSECTICIDE, STIMULANT, PLANTING_MATERIAL, FUEL, EQUIPMENT, CONSUMABLE, OTHER]
+        - name: isHazardous
+          in: query
+          schema: { type: boolean }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedMaterialResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Materials]
+      summary: Register a new material/input
+      operationId: createMaterial
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MaterialCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MaterialResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /materials/{materialId}:
+    parameters:
+      - $ref: '#/components/parameters/MaterialIdPath'
+    get:
+      tags: [Materials]
+      summary: Get material by ID
+      operationId: getMaterial
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MaterialResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Materials]
+      summary: Update a material/input
+      operationId: updateMaterial
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MaterialUpdateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MaterialResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── ANALYTICS ───────────────────────
+  /analytics/activity-dashboard:
+    get:
+      tags: [Analytics]
+      summary: Daily activity dashboard (from vw_activity_dashboard)
+      operationId: getActivityDashboard
+      parameters:
+        - name: activityDate
+          in: query
+          schema: { type: string, format: date }
+        - name: plantationCode
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ActivityDashboardResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /analytics/category-analysis:
+    get:
+      tags: [Analytics]
+      summary: Category-wise activity analysis (from vw_activity_category_analysis)
+      operationId: getActivityCategoryAnalysis
+      parameters:
+        - name: plantationCode
+          in: query
+          schema: { type: string }
+        - name: activityDate
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ActivityCategoryAnalysisResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /analytics/material-consumption:
+    get:
+      tags: [Analytics]
+      summary: Material consumption report (from vw_material_consumption)
+      operationId: getMaterialConsumption
+      parameters:
+        - name: plantationCode
+          in: query
+          schema: { type: string }
+        - name: materialCode
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/MaterialConsumptionResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /analytics/worker-productivity:
+    get:
+      tags: [Analytics]
+      summary: Worker daily productivity (from vw_worker_daily_productivity)
+      operationId: getWorkerDailyProductivity
+      parameters:
+        - name: workerId
+          in: query
+          schema: { type: integer }
+        - name: activityDate
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/WorkerDailyProductivityResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ─────────────────────── LOOKUPS ───────────────────────
+  /lookups/activity-categories:
+    get:
+      tags: [Lookups]
+      summary: List activity category lookup
+      operationId: listActivityCategories
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ActivityCategoryLookup' }
+
+  /lookups/activity-types:
+    get:
+      tags: [Lookups]
+      summary: List activity type lookup
+      operationId: listActivityTypes
+      parameters:
+        - name: categoryCode
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ActivityTypeLookup' }
+
+  /lookups/activity-statuses:
+    get:
+      tags: [Lookups]
+      summary: List activity status lookup
+      operationId: listActivityStatuses
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ActivityStatusLookup' }
+
+  /lookups/activity-priorities:
+    get:
+      tags: [Lookups]
+      summary: List activity priority lookup
+      operationId: listActivityPriorities
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ActivityPriorityLookup' }
+
+  /lookups/inspection-checklist-items:
+    get:
+      tags: [Lookups]
+      summary: List inspection checklist item lookup
+      operationId: listInspectionChecklistItems
+      parameters:
+        - name: categoryCode
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/InspectionChecklistItemLookup' }
+
+# ════════════════════════════════════════════════════════════════════
+# COMPONENTS
+# ════════════════════════════════════════════════════════════════════
+components:
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Keycloak-issued JWT token
+
+  # ─────────────── SHARED PARAMETERS ───────────────
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      schema: { type: integer, default: 0, minimum: 0 }
+      description: Zero-based page number
+    SizeParam:
+      name: size
+      in: query
+      schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+      description: Page size
+    SortParam:
+      name: sort
+      in: query
+      schema: { type: string }
+      description: 'Sort field and direction (e.g., activityDate,desc)'
+    LatParam:
+      name: lat
+      in: query
+      schema: { type: number, format: double, minimum: -90, maximum: 90 }
+      description: Latitude for spatial proximity filter
+    LonParam:
+      name: lon
+      in: query
+      schema: { type: number, format: double, minimum: -180, maximum: 180 }
+      description: Longitude for spatial proximity filter
+    RadiusKmParam:
+      name: radiusKm
+      in: query
+      schema: { type: number, format: double, default: 10 }
+      description: Search radius in kilometers (requires lat + lon)
+    PlanIdPath:
+      name: planId
+      in: path
+      required: true
+      schema: { type: integer }
+    ActivityIdPath:
+      name: activityId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    AssignmentIdPath:
+      name: assignmentId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    InspectionIdPath:
+      name: inspectionId
+      in: path
+      required: true
+      schema: { type: integer }
+    MaterialIdPath:
+      name: materialId
+      in: path
+      required: true
+      schema: { type: integer }
+
+  # ─────────────── SHARED RESPONSES ───────────────
+  responses:
+    BadRequest:
+      description: Validation error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Unauthorized:
+      description: Missing or invalid JWT token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Conflict:
+      description: Duplicate resource (unique constraint violation)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  # ─────────────── SCHEMAS ───────────────
+  schemas:
+
+    ErrorResponse:
+      type: object
+      properties:
+        timestamp: { type: string, format: date-time }
+        status: { type: integer }
+        error: { type: string }
+        message: { type: string }
+        path: { type: string }
+        fieldErrors:
+          type: array
+          items:
+            type: object
+            properties:
+              field: { type: string }
+              message: { type: string }
+
+    # ══════════ DAILY WORK PLAN ══════════
+    DailyWorkPlanCreateRequest:
+      type: object
+      required: [plantationId, planDate]
+      properties:
+        plantationId: { type: integer }
+        divisionId: { type: integer }
+        planDate: { type: string, format: date }
+        planName: { type: string, maxLength: 200 }
+        plannedBy: { type: integer, description: 'Cross-module reference to worker.worker_id (Module 4)' }
+        weatherForecast: { type: string, maxLength: 200 }
+        suitableForFieldWork: { type: boolean, default: true }
+        aiSuggestedPriorities: { type: string }
+        remarks: { type: string }
+
+    DailyWorkPlanUpdateRequest:
+      type: object
+      properties:
+        planName: { type: string, maxLength: 200 }
+        status: { type: string, enum: [DRAFT, PUBLISHED, IN_PROGRESS, COMPLETED, CANCELLED] }
+        weatherForecast: { type: string, maxLength: 200 }
+        suitableForFieldWork: { type: boolean }
+        aiSuggestedPriorities: { type: string }
+        remarks: { type: string }
+
+    DailyWorkPlanResponse:
+      type: object
+      properties:
+        planId: { type: integer, readOnly: true }
+        plantationId: { type: integer }
+        divisionId: { type: integer }
+        planDate: { type: string, format: date }
+        planName: { type: string }
+        plannedBy: { type: integer }
+        plannedAt: { type: string, format: date-time }
+        status: { type: string }
+        weatherForecast: { type: string }
+        suitableForFieldWork: { type: boolean }
+        totalActivitiesPlanned: { type: integer, readOnly: true }
+        totalActivitiesCompleted: { type: integer, readOnly: true }
+        totalWorkersDeployed: { type: integer, readOnly: true }
+        completionRatePct: { type: number, format: double, readOnly: true }
+        aiSuggestedPriorities: { type: string }
+        remarks: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+        createdBy: { type: string, readOnly: true }
+
+    PagedDailyWorkPlanResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/DailyWorkPlanResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ DAILY ACTIVITY ══════════
+    DailyActivityCreateRequest:
+      type: object
+      required: [plantationId, activityTypeCode, categoryCode, activityDate]
+      properties:
+        planId: { type: integer }
+        plantationId: { type: integer }
+        divisionId: { type: integer }
+        fieldId: { type: integer }
+        nurseryId: { type: integer }
+        activityTypeCode: { type: string, description: 'Lookup code from lu_activity_type' }
+        categoryCode: { type: string, description: 'Lookup code from lu_activity_category' }
+        activityDescription: { type: string }
+        activityDate: { type: string, format: date }
+        assignedWorkerId: { type: integer, description: 'Cross-module reference to worker.worker_id (Module 4)' }
+        assignedGangId: { type: integer, description: 'Cross-module reference to gang.gang_id (Module 4)' }
+        assignedBy: { type: integer }
+        priorityCode: { type: string, default: 'MEDIUM', description: 'Lookup code from lu_activity_priority' }
+        plannedStartTime: { type: string, format: time }
+        plannedEndTime: { type: string, format: time }
+        plannedDurationHours: { type: number, format: double }
+        workersDeployed: { type: integer, minimum: 0, default: 1 }
+        targetQuantity: { type: number, format: double }
+        quantityUnit: { type: string, maxLength: 30, description: 'HECTARE, TREE, KG, METER, TRIP, COUNT' }
+        tappingTaskId: { type: integer, format: int64, description: 'Cross-module reference to tapping_task.task_id (Module 3) — set only if categoryCode = TAPPING' }
+        supervisorId: { type: integer }
+        remarks: { type: string }
+
+    DailyActivityUpdateRequest:
+      type: object
+      properties:
+        assignedWorkerId: { type: integer }
+        assignedGangId: { type: integer }
+        priorityCode: { type: string }
+        status: { type: string, description: 'Lookup code from lu_activity_status' }
+        actualStartTime: { type: string, format: date-time }
+        actualEndTime: { type: string, format: date-time }
+        workersDeployed: { type: integer, minimum: 0 }
+        targetQuantity: { type: number, format: double }
+        actualQuantity: { type: number, format: double }
+        quantityUnit: { type: string, maxLength: 30 }
+        startGpsLatitude: { type: number, format: double, minimum: -90, maximum: 90 }
+        startGpsLongitude: { type: number, format: double, minimum: -180, maximum: 180 }
+        endGpsLatitude: { type: number, format: double, minimum: -90, maximum: 90 }
+        endGpsLongitude: { type: number, format: double, minimum: -180, maximum: 180 }
+        weatherCondition: { type: string, maxLength: 30 }
+        rainfallMm: { type: number, format: double }
+        cancelReason: { type: string }
+        postponedToDate: { type: string, format: date }
+        supervisorId: { type: integer }
+        supervisorVerified: { type: boolean }
+        supervisorRemarks: { type: string }
+        photoUrls: { type: array, items: { type: string } }
+        remarks: { type: string }
+
+    DailyActivityResponse:
+      type: object
+      properties:
+        activityId: { type: integer, format: int64, readOnly: true }
+        planId: { type: integer }
+        plantationId: { type: integer }
+        divisionId: { type: integer }
+        fieldId: { type: integer }
+        nurseryId: { type: integer }
+        activityTypeCode: { type: string }
+        activityTypeName: { type: string }
+        categoryCode: { type: string }
+        categoryName: { type: string }
+        activityDescription: { type: string }
+        activityDate: { type: string, format: date }
+        assignedWorkerId: { type: integer }
+        assignedGangId: { type: integer }
+        assignedBy: { type: integer }
+        priorityCode: { type: string }
+        priorityName: { type: string }
+        plannedStartTime: { type: string, format: time }
+        plannedEndTime: { type: string, format: time }
+        plannedDurationHours: { type: number, format: double }
+        status: { type: string }
+        statusName: { type: string }
+        actualStartTime: { type: string, format: date-time }
+        actualEndTime: { type: string, format: date-time }
+        actualDurationHours: { type: number, format: double, readOnly: true, description: 'Auto-derived from actualStartTime/actualEndTime' }
+        workersDeployed: { type: integer }
+        manDays: { type: number, format: double, readOnly: true, description: 'Auto-derived: workersDeployed * actualDurationHours / 8' }
+        targetQuantity: { type: number, format: double }
+        actualQuantity: { type: number, format: double }
+        quantityUnit: { type: string }
+        completionPct: { type: number, format: double, readOnly: true, description: 'Auto-calculated: actualQuantity / targetQuantity * 100' }
+        tappingTaskId: { type: integer, format: int64 }
+        startGpsLatitude: { type: number, format: double }
+        startGpsLongitude: { type: number, format: double }
+        endGpsLatitude: { type: number, format: double }
+        endGpsLongitude: { type: number, format: double }
+        weatherCondition: { type: string }
+        rainfallMm: { type: number, format: double }
+        cancelReason: { type: string }
+        postponedToDate: { type: string, format: date }
+        supervisorId: { type: integer }
+        supervisorVerified: { type: boolean }
+        verifiedAt: { type: string, format: date-time, readOnly: true }
+        supervisorRemarks: { type: string }
+        aiAnomalyFlag: { type: boolean, readOnly: true }
+        aiAnomalyReason: { type: string, readOnly: true }
+        aiEfficiencyScore: { type: number, format: double, readOnly: true }
+        photoUrls: { type: array, items: { type: string } }
+        remarks: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+        createdBy: { type: string, readOnly: true }
+        updatedBy: { type: string, readOnly: true }
+
+    PagedDailyActivityResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/DailyActivityResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ WORKER ASSIGNMENT ══════════
+    WorkerAssignmentCreateRequest:
+      type: object
+      required: [workerId]
+      properties:
+        workerId: { type: integer, description: 'Cross-module reference to worker.worker_id (Module 4)' }
+        roleInActivity: { type: string, enum: [LEAD, WORKER, HELPER, SUPERVISOR, TRAINEE] }
+        checkInTime: { type: string, format: date-time }
+        individualQuantity: { type: number, format: double }
+        quantityUnit: { type: string, maxLength: 30 }
+        remarks: { type: string }
+
+    WorkerAssignmentUpdateRequest:
+      type: object
+      properties:
+        roleInActivity: { type: string, enum: [LEAD, WORKER, HELPER, SUPERVISOR, TRAINEE] }
+        checkInTime: { type: string, format: date-time }
+        checkOutTime: { type: string, format: date-time }
+        hoursWorked: { type: number, format: double }
+        individualQuantity: { type: number, format: double }
+        quantityUnit: { type: string, maxLength: 30 }
+        remarks: { type: string }
+
+    WorkerAssignmentResponse:
+      type: object
+      properties:
+        assignmentId: { type: integer, format: int64, readOnly: true }
+        activityId: { type: integer, format: int64 }
+        workerId: { type: integer }
+        workerName: { type: string }
+        roleInActivity: { type: string }
+        checkInTime: { type: string, format: date-time }
+        checkOutTime: { type: string, format: date-time }
+        hoursWorked: { type: number, format: double }
+        individualQuantity: { type: number, format: double }
+        quantityUnit: { type: string }
+        remarks: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+
+    PagedWorkerAssignmentResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/WorkerAssignmentResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ MATERIAL USAGE ══════════
+    MaterialUsageCreateRequest:
+      type: object
+      required: [materialId, actualQuantity, quantityUnit]
+      properties:
+        materialId: { type: integer }
+        plannedQuantity: { type: number, format: double }
+        actualQuantity: { type: number, format: double, minimum: 0 }
+        quantityUnit: { type: string, maxLength: 20 }
+        unitCost: { type: number, format: double }
+        currencyCode: { type: string, default: 'LKR' }
+        batchNumber: { type: string, maxLength: 50 }
+        storeIssueRef: { type: string, maxLength: 50 }
+        concentrationPct: { type: number, format: double }
+        applicationRate: { type: string, maxLength: 50 }
+        varianceReason: { type: string }
+        remarks: { type: string }
+
+    MaterialUsageResponse:
+      type: object
+      properties:
+        usageId: { type: integer, format: int64, readOnly: true }
+        activityId: { type: integer, format: int64 }
+        materialId: { type: integer }
+        materialCode: { type: string }
+        materialName: { type: string }
+        plannedQuantity: { type: number, format: double }
+        actualQuantity: { type: number, format: double }
+        quantityUnit: { type: string }
+        unitCost: { type: number, format: double }
+        totalCost: { type: number, format: double, readOnly: true, description: 'Auto-calculated: actualQuantity * unitCost' }
+        currencyCode: { type: string }
+        batchNumber: { type: string }
+        storeIssueRef: { type: string }
+        concentrationPct: { type: number, format: double }
+        applicationRate: { type: string }
+        variancePct: { type: number, format: double, readOnly: true, description: 'Auto-calculated: (actualQuantity - plannedQuantity) / plannedQuantity * 100' }
+        varianceReason: { type: string }
+        remarks: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+
+    PagedMaterialUsageResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/MaterialUsageResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ PHOTO EVIDENCE ══════════
+    PhotoEvidenceCreateRequest:
+      type: object
+      required: [photoUrl, photoType, capturedAt]
+      properties:
+        photoUrl: { type: string }
+        thumbnailUrl: { type: string }
+        photoType: { type: string, enum: [BEFORE, DURING, AFTER, ISSUE, EQUIPMENT, MATERIAL, WEATHER, OTHER] }
+        capturedAt: { type: string, format: date-time }
+        capturedBy: { type: integer, description: 'Cross-module reference to worker.worker_id (Module 4)' }
+        gpsLatitude: { type: number, format: double, minimum: -90, maximum: 90 }
+        gpsLongitude: { type: number, format: double, minimum: -180, maximum: 180 }
+        caption: { type: string }
+
+    PhotoEvidenceResponse:
+      type: object
+      properties:
+        photoId: { type: integer, format: int64, readOnly: true }
+        activityId: { type: integer, format: int64 }
+        photoUrl: { type: string }
+        thumbnailUrl: { type: string }
+        photoType: { type: string }
+        capturedAt: { type: string, format: date-time }
+        capturedBy: { type: integer }
+        gpsLatitude: { type: number, format: double }
+        gpsLongitude: { type: number, format: double }
+        aiAnalyzed: { type: boolean, readOnly: true }
+        aiAnalysisResult: { type: object, additionalProperties: true, readOnly: true }
+        aiConfidenceScore: { type: number, format: double, readOnly: true }
+        aiFlaggedIssues: { type: array, items: { type: string }, readOnly: true }
+        caption: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+
+    PagedPhotoEvidenceResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/PhotoEvidenceResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ SUPERVISOR INSPECTION ══════════
+    SupervisorInspectionCreateRequest:
+      type: object
+      required: [plantationId, inspectorId, inspectionDate, inspectionType, overallRating]
+      properties:
+        plantationId: { type: integer }
+        divisionId: { type: integer }
+        fieldId: { type: integer }
+        activityId: { type: integer, format: int64 }
+        inspectorId: { type: integer, description: 'Cross-module reference to worker.worker_id (Module 4)' }
+        inspectionDate: { type: string, format: date }
+        inspectionTime: { type: string, format: date-time }
+        inspectionType: { type: string, enum: [ROUTINE, SPOT_CHECK, QUALITY_AUDIT, SAFETY_WALK, POST_ACTIVITY, COMPLAINT] }
+        overallRating: { type: integer, minimum: 1, maximum: 5 }
+        gpsLatitude: { type: number, format: double, minimum: -90, maximum: 90 }
+        gpsLongitude: { type: number, format: double, minimum: -180, maximum: 180 }
+        arAssisted: { type: boolean, default: false }
+        arDeviceId: { type: string, maxLength: 50 }
+        findings: { type: string }
+        correctiveActions: { type: string }
+        followUpDate: { type: string, format: date }
+        photoUrls: { type: array, items: { type: string } }
+
+    SupervisorInspectionUpdateRequest:
+      type: object
+      properties:
+        findings: { type: string }
+        correctiveActions: { type: string }
+        followUpDate: { type: string, format: date }
+        followUpCompleted: { type: boolean }
+        photoUrls: { type: array, items: { type: string } }
+
+    SupervisorInspectionResponse:
+      type: object
+      properties:
+        inspectionId: { type: integer, readOnly: true }
+        plantationId: { type: integer }
+        divisionId: { type: integer }
+        fieldId: { type: integer }
+        activityId: { type: integer, format: int64 }
+        inspectorId: { type: integer }
+        inspectorName: { type: string }
+        inspectionDate: { type: string, format: date }
+        inspectionTime: { type: string, format: date-time }
+        inspectionType: { type: string }
+        overallRating: { type: integer }
+        gpsLatitude: { type: number, format: double }
+        gpsLongitude: { type: number, format: double }
+        arAssisted: { type: boolean }
+        arDeviceId: { type: string }
+        aiSummary: { type: string, readOnly: true }
+        findings: { type: string }
+        correctiveActions: { type: string }
+        followUpDate: { type: string, format: date }
+        followUpCompleted: { type: boolean }
+        photoUrls: { type: array, items: { type: string } }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+
+    PagedSupervisorInspectionResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/SupervisorInspectionResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ CHECKLIST RESPONSE ══════════
+    ChecklistResponseCreateRequest:
+      type: object
+      required: [itemCode]
+      properties:
+        itemCode: { type: string, description: 'Lookup code from lu_inspection_checklist_item' }
+        yesNoValue: { type: boolean }
+        ratingValue: { type: integer, minimum: 1, maximum: 5 }
+        numericValue: { type: number, format: double }
+        textValue: { type: string }
+        remarks: { type: string }
+        photoUrl: { type: string }
+
+    ChecklistResponseResponse:
+      type: object
+      properties:
+        responseId: { type: integer, readOnly: true }
+        inspectionId: { type: integer }
+        itemCode: { type: string }
+        itemName: { type: string }
+        checkType: { type: string, enum: [YES_NO, RATING_1_5, NUMERIC, TEXT] }
+        yesNoValue: { type: boolean }
+        ratingValue: { type: integer }
+        numericValue: { type: number, format: double }
+        textValue: { type: string }
+        remarks: { type: string }
+        photoUrl: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+
+    # ══════════ DAILY ACTIVITY SUMMARY ══════════
+    DailyActivitySummaryResponse:
+      type: object
+      properties:
+        summaryId: { type: integer, readOnly: true }
+        plantationId: { type: integer }
+        divisionId: { type: integer }
+        summaryDate: { type: string, format: date }
+        totalPlanned: { type: integer }
+        totalCompleted: { type: integer }
+        totalPartial: { type: integer }
+        totalCancelled: { type: integer }
+        totalPostponed: { type: integer }
+        totalWorkersDeployed: { type: integer }
+        totalManDays: { type: number, format: double }
+        tappingAreaHa: { type: number, format: double }
+        maintenanceAreaHa: { type: number, format: double }
+        manuringAreaHa: { type: number, format: double }
+        sprayingAreaHa: { type: number, format: double }
+        nurseryPlants: { type: integer }
+        replantingTrees: { type: integer }
+        totalMaterialCost: { type: number, format: double }
+        currencyCode: { type: string }
+        avgInspectionRating: { type: number, format: double }
+        activitiesWithAnomalies: { type: integer }
+        weatherCondition: { type: string }
+        rainfallMm: { type: number, format: double }
+        fieldWorkHoursLost: { type: number, format: double }
+        overallCompletionPct: { type: number, format: double }
+        aiDailySummary: { type: string, readOnly: true }
+        aiRecommendations: { type: string, readOnly: true }
+        createdAt: { type: string, format: date-time, readOnly: true }
+
+    PagedDailyActivitySummaryResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/DailyActivitySummaryResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ MATERIAL MASTER ══════════
+    MaterialCreateRequest:
+      type: object
+      required: [materialCode, materialName, materialCategory, defaultUnit]
+      properties:
+        materialCode: { type: string, maxLength: 30 }
+        materialName: { type: string, maxLength: 200 }
+        materialCategory:
+          type: string
+          enum: [FERTILIZER, HERBICIDE, FUNGICIDE, INSECTICIDE, STIMULANT, PLANTING_MATERIAL, FUEL, EQUIPMENT, CONSUMABLE, OTHER]
+        defaultUnit: { type: string, maxLength: 20 }
+        unitCost: { type: number, format: double }
+        currencyCode: { type: string, default: 'LKR' }
+        isHazardous: { type: boolean, default: false }
+        safetyDataUrl: { type: string }
+        minStockLevel: { type: number, format: double }
+
+    MaterialUpdateRequest:
+      type: object
+      properties:
+        materialName: { type: string, maxLength: 200 }
+        unitCost: { type: number, format: double }
+        isHazardous: { type: boolean }
+        safetyDataUrl: { type: string }
+        minStockLevel: { type: number, format: double }
+        isActive: { type: boolean }
+
+    MaterialResponse:
+      type: object
+      properties:
+        materialId: { type: integer, readOnly: true }
+        materialCode: { type: string }
+        materialName: { type: string }
+        materialCategory: { type: string }
+        defaultUnit: { type: string }
+        unitCost: { type: number, format: double }
+        currencyCode: { type: string }
+        isHazardous: { type: boolean }
+        safetyDataUrl: { type: string }
+        minStockLevel: { type: number, format: double }
+        isActive: { type: boolean }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+
+    PagedMaterialResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/MaterialResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ ANALYTICS ══════════
+    ActivityDashboardResponse:
+      type: object
+      properties:
+        activityDate: { type: string, format: date }
+        plantationCode: { type: string }
+        plantationName: { type: string }
+        divisionCode: { type: string }
+        fieldCode: { type: string }
+        categoryName: { type: string }
+        activityTypeName: { type: string }
+        priorityName: { type: string }
+        priorityColor: { type: string }
+        statusName: { type: string }
+        assignedWorker: { type: string }
+        gangName: { type: string }
+        plannedDurationHours: { type: number, format: double }
+        actualDurationHours: { type: number, format: double }
+        targetQuantity: { type: number, format: double }
+        actualQuantity: { type: number, format: double }
+        quantityUnit: { type: string }
+        completionPct: { type: number, format: double }
+        workersDeployed: { type: integer }
+        weatherCondition: { type: string }
+        rainfallMm: { type: number, format: double }
+        supervisorVerified: { type: boolean }
+        supervisorName: { type: string }
+        aiAnomalyFlag: { type: boolean }
+        aiEfficiencyScore: { type: number, format: double }
+        photoCount: { type: integer }
+
+    ActivityCategoryAnalysisResponse:
+      type: object
+      properties:
+        plantationCode: { type: string }
+        activityDate: { type: string, format: date }
+        categoryName: { type: string }
+        totalActivities: { type: integer }
+        completed: { type: integer }
+        partial: { type: integer }
+        cancelled: { type: integer }
+        avgCompletionPct: { type: number, format: double }
+        totalWorkers: { type: integer }
+        totalManDays: { type: number, format: double }
+        totalOutput: { type: number, format: double }
+        anomalies: { type: integer }
+
+    MaterialConsumptionResponse:
+      type: object
+      properties:
+        plantationCode: { type: string }
+        fieldCode: { type: string }
+        materialCode: { type: string }
+        materialName: { type: string }
+        materialCategory: { type: string }
+        activityTypeName: { type: string }
+        activityDate: { type: string, format: date }
+        plannedQuantity: { type: number, format: double }
+        actualQuantity: { type: number, format: double }
+        quantityUnit: { type: string }
+        totalCost: { type: number, format: double }
+        variancePct: { type: number, format: double }
+        areaOrTreesCovered: { type: number, format: double }
+        coverageUnit: { type: string }
+        applicationRatePerUnit: { type: number, format: double }
+
+    WorkerDailyProductivityResponse:
+      type: object
+      properties:
+        workerId: { type: integer }
+        employeeCode: { type: string }
+        fullName: { type: string }
+        role: { type: string }
+        activityDate: { type: string, format: date }
+        activitiesAssigned: { type: integer }
+        activitiesCompleted: { type: integer }
+        totalHoursWorked: { type: number, format: double }
+        totalOutput: { type: number, format: double }
+        avgCompletionPct: { type: number, format: double }
+        avgAiEfficiency: { type: number, format: double }
+        anomalies: { type: integer }
+        supervisorVerifiedCount: { type: integer }
+
+    # ══════════ LOOKUPS ══════════
+    ActivityCategoryLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        description: { type: string }
+        displayOrder: { type: integer }
+        isActive: { type: boolean }
+
+    ActivityTypeLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        categoryCode: { type: string }
+        requiresField: { type: boolean }
+        requiresMaterials: { type: boolean }
+        requiresPhoto: { type: boolean }
+        requiresGps: { type: boolean }
+        standardDurationHours: { type: number, format: double }
+        unitOfMeasure: { type: string }
+        description: { type: string }
+        isActive: { type: boolean }
+
+    ActivityStatusLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        isTerminal: { type: boolean }
+        displayOrder: { type: integer }
+        isActive: { type: boolean }
+
+    ActivityPriorityLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        priorityLevel: { type: integer }
+        colorHex: { type: string }
+        description: { type: string }
+        isActive: { type: boolean }
+
+    InspectionChecklistItemLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        categoryCode: { type: string }
+        checkType: { type: string, enum: [YES_NO, RATING_1_5, NUMERIC, TEXT] }
+        description: { type: string }
+        isActive: { type: boolean }

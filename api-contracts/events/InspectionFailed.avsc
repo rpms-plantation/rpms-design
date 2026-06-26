@@ -1,0 +1,20 @@
+{
+  "type": "record",
+  "name": "InspectionFailed",
+  "namespace": "com.rpms.events.activity",
+  "doc": "Emitted when a supervisor_inspection is recorded with overallRating below the passing threshold (<= 2) in Module 5. Partition key: fieldId. Consumed by: notification-service.",
+  "fields": [
+    { "name": "metadata", "type": "com.rpms.events.EventMetadata" },
+    { "name": "inspectionId", "type": "int" },
+    { "name": "plantationId", "type": "int" },
+    { "name": "fieldId", "type": ["null", "int"], "default": null },
+    { "name": "activityId", "type": ["null", "long"], "default": null },
+    { "name": "inspectorId", "type": "int" },
+    { "name": "inspectionDate", "type": { "type": "int", "logicalType": "date" } },
+    { "name": "inspectionType", "type": "string" },
+    { "name": "overallRating", "type": "int" },
+    { "name": "findings", "type": ["null", "string"], "default": null },
+    { "name": "correctiveActions", "type": ["null", "string"], "default": null },
+    { "name": "followUpDate", "type": ["null", { "type": "int", "logicalType": "date" }], "default": null }
+  ]
+}

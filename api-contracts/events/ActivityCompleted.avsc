@@ -1,0 +1,23 @@
+{
+  "type": "record",
+  "name": "ActivityCompleted",
+  "namespace": "com.rpms.events.activity",
+  "doc": "Emitted when a daily_activity transitions to COMPLETED or PARTIAL status in Module 5. Partition key: fieldId. Consumed by: reporting-service.",
+  "fields": [
+    { "name": "metadata", "type": "com.rpms.events.EventMetadata" },
+    { "name": "activityId", "type": "long" },
+    { "name": "plantationId", "type": "int" },
+    { "name": "fieldId", "type": ["null", "int"], "default": null },
+    { "name": "activityTypeCode", "type": "string" },
+    { "name": "categoryCode", "type": "string" },
+    { "name": "activityDate", "type": { "type": "int", "logicalType": "date" } },
+    { "name": "assignedWorkerId", "type": ["null", "int"], "default": null },
+    { "name": "assignedGangId", "type": ["null", "int"], "default": null },
+    { "name": "status", "type": "string", "doc": "COMPLETED or PARTIAL" },
+    { "name": "workersDeployed", "type": "int" },
+    { "name": "manDays", "type": ["null", "double"], "default": null },
+    { "name": "actualQuantity", "type": ["null", "double"], "default": null },
+    { "name": "quantityUnit", "type": ["null", "string"], "default": null },
+    { "name": "completionPct", "type": ["null", "double"], "default": null }
+  ]
+}
