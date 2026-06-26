@@ -1,0 +1,16 @@
+{
+  "type": "record",
+  "name": "QualityTestFailed",
+  "namespace": "com.rpms.events.tapping",
+  "doc": "Emitted when a latex_quality_test result is auto-flagged out-of-spec by the fn_check_quality_spec DB trigger in Module 3. Partition key: collectionId. Consumed by: notification-service.",
+  "fields": [
+    { "name": "metadata", "type": "com.rpms.events.EventMetadata" },
+    { "name": "testId", "type": "long" },
+    { "name": "collectionId", "type": "long" },
+    { "name": "parameterCode", "type": "string" },
+    { "name": "testedValue", "type": "double" },
+    { "name": "unitOfMeasure", "type": "string" },
+    { "name": "deviationPct", "type": ["null", "double"], "default": null },
+    { "name": "testDate", "type": { "type": "int", "logicalType": "date" } }
+  ]
+}

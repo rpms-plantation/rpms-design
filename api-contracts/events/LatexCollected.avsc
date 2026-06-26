@@ -1,0 +1,19 @@
+{
+  "type": "record",
+  "name": "LatexCollected",
+  "namespace": "com.rpms.events.tapping",
+  "doc": "Emitted when a latex_collection_record is created in Module 3. Partition key: fieldId. Consumed by: reporting-service.",
+  "fields": [
+    { "name": "metadata", "type": "com.rpms.events.EventMetadata" },
+    { "name": "collectionId", "type": "long" },
+    { "name": "taskId", "type": ["null", "long"], "default": null },
+    { "name": "plantationId", "type": "int" },
+    { "name": "fieldId", "type": "int" },
+    { "name": "collectionDate", "type": { "type": "int", "logicalType": "date" } },
+    { "name": "latexGradeCode", "type": "string" },
+    { "name": "netWeightKg", "type": "double" },
+    { "name": "drcPct", "type": ["null", "double"], "default": null },
+    { "name": "dryRubberKg", "type": ["null", "double"], "default": null },
+    { "name": "collectionPointId", "type": ["null", "int"], "default": null }
+  ]
+}

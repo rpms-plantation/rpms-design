@@ -1,0 +1,20 @@
+{
+  "type": "record",
+  "name": "TappingTaskCompleted",
+  "namespace": "com.rpms.events.tapping",
+  "doc": "Emitted when a tapping_task transitions to COMPLETED or PARTIAL status in Module 3. Partition key: fieldId. Consumed by: activity-service (M5), reporting-service, notification-service.",
+  "fields": [
+    { "name": "metadata", "type": "com.rpms.events.EventMetadata" },
+    { "name": "taskId", "type": "long" },
+    { "name": "plantationId", "type": "int" },
+    { "name": "fieldId", "type": "int" },
+    { "name": "tapperId", "type": ["null", "int"], "default": null },
+    { "name": "taskDate", "type": { "type": "int", "logicalType": "date" } },
+    { "name": "status", "type": "string", "doc": "COMPLETED or PARTIAL" },
+    { "name": "treesTapped", "type": "int" },
+    { "name": "treesSkipped", "type": "int" },
+    { "name": "totalYieldKg", "type": ["null", "double"], "default": null },
+    { "name": "yieldPerTreeG", "type": ["null", "double"], "default": null },
+    { "name": "avgDrcPct", "type": ["null", "double"], "default": null }
+  ]
+}

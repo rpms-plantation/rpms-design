@@ -1,0 +1,1750 @@
+openapi: 3.0.3
+info:
+  title: RPMS Tapping Service API
+  description: |
+    Module 3 — Tapping Task Monitoring.
+    Manages the recurring tapping calendar, daily tapping task assignment and
+    execution tracking, latex collection and quality testing, collection point
+    registry, IoT device registry and telemetry, weather observations, and
+    tapper/field performance analytics.
+
+    **Spatial**: PostGIS Point on `tapping_task` (start location), `collection_point`,
+    and `iot_device` (auto-synced from lat/lon by a DB trigger). GPS coordinates
+    exposed as latitude/longitude pairs in DTOs.
+
+    **High-volume telemetry**: `iot_sensor_reading` is a monthly-partitioned table.
+    List queries require a time range (`from`/`to`) — never query unbounded.
+
+    **Framework**: Quarkus 3 + Java 21 (ADR-002)
+    **Database**: PostgreSQL 16 + PostGIS (ADR-001)
+    **Repo**: rpms-mod-tapping
+    **Depends on**: Module 1 (plantation, division, field, lu_tapping_system),
+    Module 2 (tree), Module 4 (worker — tapper_id is a cross-module ID reference only)
+  version: 1.0.0
+  contact:
+    name: RPMS Architecture Team
+  license:
+    name: Proprietary
+
+servers:
+  - url: /api/tapping
+    description: Behind API Gateway (rpms-platform)
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Tapping Schedules
+    description: Recurring tapping calendar per field
+  - name: Tapping Tasks
+    description: Daily operational task — one tapper x one field x one day
+  - name: Tree Details
+    description: Optional tree-level tapping detail via NFC scanning (immutable)
+  - name: Collection Points
+    description: Physical latex receiving/weighing stations
+  - name: Latex Collection
+    description: Physical latex collection records — weights, DRC, provenance
+  - name: Quality Tests
+    description: Lab/field quality test results on collected latex (immutable)
+  - name: IoT Devices
+    description: Smart knives, rain gauges, scales, GPS wearables
+  - name: IoT Readings
+    description: High-volume device telemetry (immutable, time-partitioned)
+  - name: Weather
+    description: Daily field/plantation weather observations (immutable)
+  - name: Analytics
+    description: Cross-task analytical views and daily rollups
+  - name: Lookups
+    description: Read-only reference data
+
+# ════════════════════════════════════════════════════════════════════
+# PATHS
+# ════════════════════════════════════════════════════════════════════
+paths:
+
+  # ─────────────────────── TAPPING SCHEDULES ───────────────────────
+  /tapping-schedules:
+    get:
+      tags: [Tapping Schedules]
+      summary: List tapping schedules
+      operationId: listTappingSchedules
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
+        - name: plantationId
+          in: query
+          schema: { type: integer }
+        - name: fieldId
+          in: query
+          schema: { type: integer }
+        - name: status
+          in: query
+          schema: { type: string, enum: [ACTIVE, SUSPENDED, COMPLETED] }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedTappingScheduleResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Tapping Schedules]
+      summary: Create a tapping schedule
+      operationId: createTappingSchedule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TappingScheduleCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TappingScheduleResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /tapping-schedules/{scheduleId}:
+    parameters:
+      - $ref: '#/components/parameters/ScheduleIdPath'
+    get:
+      tags: [Tapping Schedules]
+      summary: Get schedule by ID
+      operationId: getTappingSchedule
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TappingScheduleResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Tapping Schedules]
+      summary: Update a tapping schedule
+      operationId: updateTappingSchedule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TappingScheduleUpdateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TappingScheduleResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── TAPPING TASKS ───────────────────────
+  /tapping-tasks:
+    get:
+      tags: [Tapping Tasks]
+      summary: List tapping tasks (filterable across plantation/field/tapper/date/status)
+      operationId: listTappingTasks
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
+        - name: plantationId
+          in: query
+          schema: { type: integer }
+        - name: fieldId
+          in: query
+          schema: { type: integer }
+        - name: tapperId
+          in: query
+          schema: { type: integer }
+        - name: taskDate
+          in: query
+          schema: { type: string, format: date }
+        - name: status
+          in: query
+          schema: { type: string, description: 'Lookup code from lu_tapping_task_status' }
+        - $ref: '#/components/parameters/LatParam'
+        - $ref: '#/components/parameters/LonParam'
+        - $ref: '#/components/parameters/RadiusKmParam'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedTappingTaskResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Tapping Tasks]
+      summary: Create / assign a tapping task
+      operationId: createTappingTask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TappingTaskCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TappingTaskResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /tapping-tasks/{taskId}:
+    parameters:
+      - $ref: '#/components/parameters/TaskIdPath'
+    get:
+      tags: [Tapping Tasks]
+      summary: Get task by ID
+      operationId: getTappingTask
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TappingTaskResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Tapping Tasks]
+      summary: Update task execution / completion details
+      description: |
+        Updating `totalLatexKg`/`totalCupLumpKg`/`totalTreeLaceKg`/`treesTapped`
+        auto-recalculates the read-only `totalYieldKg`/`yieldPerTreeG` fields via
+        a DB trigger (fn_calc_task_yield_metrics) when status is COMPLETED or PARTIAL.
+        Setting `startGpsLatitude`/`startGpsLongitude` auto-syncs the PostGIS point.
+      operationId: updateTappingTask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TappingTaskUpdateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TappingTaskResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── TREE DETAILS ───────────────────────
+  /tapping-tasks/{taskId}/tree-details:
+    parameters:
+      - $ref: '#/components/parameters/TaskIdPath'
+    get:
+      tags: [Tree Details]
+      summary: List tree-level tapping details for a task (NFC scan records)
+      operationId: listTaskTreeDetails
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedTreeDetailResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Tree Details]
+      summary: Record a tree-level tapping result (immutable — append-only, typically via NFC scan)
+      operationId: createTaskTreeDetail
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TreeDetailCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TreeDetailResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  # ─────────────────────── COLLECTION POINTS ───────────────────────
+  /collection-points:
+    get:
+      tags: [Collection Points]
+      summary: List collection points
+      operationId: listCollectionPoints
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - name: plantationId
+          in: query
+          schema: { type: integer }
+        - name: status
+          in: query
+          schema: { type: string, enum: [ACTIVE, INACTIVE, MAINTENANCE] }
+        - $ref: '#/components/parameters/LatParam'
+        - $ref: '#/components/parameters/LonParam'
+        - $ref: '#/components/parameters/RadiusKmParam'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedCollectionPointResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Collection Points]
+      summary: Register a collection point
+      operationId: createCollectionPoint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CollectionPointCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CollectionPointResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /collection-points/{pointId}:
+    parameters:
+      - $ref: '#/components/parameters/PointIdPath'
+    get:
+      tags: [Collection Points]
+      summary: Get collection point by ID
+      operationId: getCollectionPoint
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CollectionPointResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Collection Points]
+      summary: Update a collection point
+      operationId: updateCollectionPoint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CollectionPointUpdateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CollectionPointResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── LATEX COLLECTION ───────────────────────
+  /latex-collection-records:
+    get:
+      tags: [Latex Collection]
+      summary: List latex collection records
+      operationId: listLatexCollectionRecords
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
+        - name: taskId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: fieldId
+          in: query
+          schema: { type: integer }
+        - name: collectionDate
+          in: query
+          schema: { type: string, format: date }
+        - name: latexGradeCode
+          in: query
+          schema: { type: string }
+        - name: collectionPointId
+          in: query
+          schema: { type: integer }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedLatexCollectionResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Latex Collection]
+      summary: Record a latex collection
+      description: |
+        `netWeightKg` and `dryRubberKg` are server-computed by a DB trigger
+        (fn_calc_dry_rubber) from `grossWeightKg`, `containerWeightKg`, and
+        `drcPct` — do not send them; any value sent is overwritten.
+      operationId: createLatexCollectionRecord
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LatexCollectionCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LatexCollectionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /latex-collection-records/{collectionId}:
+    parameters:
+      - $ref: '#/components/parameters/CollectionIdPath'
+    get:
+      tags: [Latex Collection]
+      summary: Get collection record by ID
+      operationId: getLatexCollectionRecord
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LatexCollectionResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Latex Collection]
+      summary: Correct a latex collection record
+      operationId: updateLatexCollectionRecord
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LatexCollectionUpdateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LatexCollectionResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── QUALITY TESTS ───────────────────────
+  /latex-collection-records/{collectionId}/quality-tests:
+    parameters:
+      - $ref: '#/components/parameters/CollectionIdPath'
+    get:
+      tags: [Quality Tests]
+      summary: List quality test results for a collection record
+      operationId: listQualityTests
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedQualityTestResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Quality Tests]
+      summary: Record a quality test result (immutable — append-only)
+      description: |
+        `isWithinSpec` and `deviationPct` are server-computed by a DB trigger
+        (fn_check_quality_spec) against `lu_quality_parameter`'s acceptable range.
+      operationId: createQualityTest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/QualityTestCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QualityTestResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ─────────────────────── IOT DEVICES ───────────────────────
+  /iot-devices:
+    get:
+      tags: [IoT Devices]
+      summary: List IoT devices
+      operationId: listIotDevices
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - name: plantationId
+          in: query
+          schema: { type: integer }
+        - name: fieldId
+          in: query
+          schema: { type: integer }
+        - name: deviceTypeCode
+          in: query
+          schema: { type: string }
+        - name: status
+          in: query
+          schema: { type: string, enum: [ACTIVE, INACTIVE, MAINTENANCE, LOST, DECOMMISSIONED] }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedIotDeviceResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [IoT Devices]
+      summary: Register an IoT device
+      operationId: createIotDevice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IotDeviceCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IotDeviceResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /iot-devices/{deviceId}:
+    parameters:
+      - $ref: '#/components/parameters/DeviceIdPath'
+    get:
+      tags: [IoT Devices]
+      summary: Get device by ID
+      operationId: getIotDevice
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IotDeviceResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [IoT Devices]
+      summary: Update device assignment / status / heartbeat
+      operationId: updateIotDevice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IotDeviceUpdateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IotDeviceResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── IOT READINGS ───────────────────────
+  /iot-devices/{deviceId}/readings:
+    parameters:
+      - $ref: '#/components/parameters/DeviceIdPath'
+    get:
+      tags: [IoT Readings]
+      summary: List telemetry readings for a device within a time range
+      description: |
+        `iot_sensor_reading` is partitioned by month — `from` and `to` are
+        required to avoid an unbounded scan across partitions.
+      operationId: listIotReadings
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedIotReadingResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [IoT Readings]
+      summary: Ingest a telemetry reading (immutable — append-only)
+      operationId: createIotReading
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IotReadingCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IotReadingResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ─────────────────────── WEATHER ───────────────────────
+  /weather-observations:
+    get:
+      tags: [Weather]
+      summary: List weather observations
+      operationId: listWeatherObservations
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - name: plantationId
+          in: query
+          schema: { type: integer }
+        - name: fieldId
+          in: query
+          schema: { type: integer }
+        - name: observationDate
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedWeatherObservationResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Weather]
+      summary: Record a weather observation (immutable — append-only)
+      operationId: createWeatherObservation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WeatherObservationCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WeatherObservationResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  # ─────────────────────── ANALYTICS ───────────────────────
+  /analytics/tapping-dashboard:
+    get:
+      tags: [Analytics]
+      summary: Daily tapping dashboard (from vw_tapping_dashboard_daily)
+      operationId: getTappingDashboard
+      parameters:
+        - name: taskDate
+          in: query
+          schema: { type: string, format: date }
+        - name: plantationCode
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TappingDashboardResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /analytics/tapper-performance-ranking:
+    get:
+      tags: [Analytics]
+      summary: Tapper performance ranking (from vw_tapper_performance_ranking)
+      operationId: getTapperPerformanceRanking
+      parameters:
+        - name: plantationCode
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TapperPerformanceRankingResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /analytics/tapper-performance-daily:
+    get:
+      tags: [Analytics]
+      summary: Daily per-tapper performance rollup (read-only, computed by scheduled aggregation)
+      operationId: listTapperPerformanceDaily
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - name: tapperId
+          in: query
+          schema: { type: integer }
+        - name: performanceDate
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedTapperPerformanceDailyResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /analytics/clone-yield:
+    get:
+      tags: [Analytics]
+      summary: Clone-wise yield analysis (from vw_clone_yield_analysis)
+      operationId: getCloneYieldAnalysis
+      parameters:
+        - name: plantationCode
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CloneYieldResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /analytics/field-yield-daily:
+    get:
+      tags: [Analytics]
+      summary: Daily per-field yield rollup (read-only, computed by scheduled aggregation)
+      operationId: listFieldYieldDaily
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - name: fieldId
+          in: query
+          schema: { type: integer }
+        - name: yieldDate
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedFieldYieldDailyResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /analytics/weather-yield-correlation:
+    get:
+      tags: [Analytics]
+      summary: Weather impact on yield (from vw_weather_yield_correlation)
+      operationId: getWeatherYieldCorrelation
+      parameters:
+        - name: plantationCode
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/WeatherYieldCorrelationResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ─────────────────────── LOOKUPS ───────────────────────
+  /lookups/tapping-task-statuses:
+    get:
+      tags: [Lookups]
+      summary: List tapping task status lookup
+      operationId: listTappingTaskStatuses
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TappingTaskStatusLookup' }
+
+  /lookups/latex-grades:
+    get:
+      tags: [Lookups]
+      summary: List latex grade lookup
+      operationId: listLatexGrades
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/LatexGradeLookup' }
+
+  /lookups/tapping-skip-reasons:
+    get:
+      tags: [Lookups]
+      summary: List tapping skip / cancellation reason lookup
+      operationId: listTappingSkipReasons
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TappingSkipReasonLookup' }
+
+  /lookups/collection-point-types:
+    get:
+      tags: [Lookups]
+      summary: List collection point type lookup
+      operationId: listCollectionPointTypes
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/LookupItem' }
+
+  /lookups/quality-parameters:
+    get:
+      tags: [Lookups]
+      summary: List quality check parameter lookup
+      operationId: listQualityParameters
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/QualityParameterLookup' }
+
+  /lookups/iot-device-types:
+    get:
+      tags: [Lookups]
+      summary: List IoT device type lookup
+      operationId: listIotDeviceTypes
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/IotDeviceTypeLookup' }
+
+# ════════════════════════════════════════════════════════════════════
+# COMPONENTS
+# ════════════════════════════════════════════════════════════════════
+components:
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Keycloak-issued JWT token
+
+  # ─────────────── SHARED PARAMETERS ───────────────
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      schema: { type: integer, default: 0, minimum: 0 }
+      description: Zero-based page number
+    SizeParam:
+      name: size
+      in: query
+      schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+      description: Page size
+    SortParam:
+      name: sort
+      in: query
+      schema: { type: string }
+      description: 'Sort field and direction (e.g., taskDate,desc)'
+    LatParam:
+      name: lat
+      in: query
+      schema: { type: number, format: double, minimum: -90, maximum: 90 }
+      description: Latitude for spatial proximity filter
+    LonParam:
+      name: lon
+      in: query
+      schema: { type: number, format: double, minimum: -180, maximum: 180 }
+      description: Longitude for spatial proximity filter
+    RadiusKmParam:
+      name: radiusKm
+      in: query
+      schema: { type: number, format: double, default: 10 }
+      description: Search radius in kilometers (requires lat + lon)
+    ScheduleIdPath:
+      name: scheduleId
+      in: path
+      required: true
+      schema: { type: integer }
+    TaskIdPath:
+      name: taskId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    PointIdPath:
+      name: pointId
+      in: path
+      required: true
+      schema: { type: integer }
+    CollectionIdPath:
+      name: collectionId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    DeviceIdPath:
+      name: deviceId
+      in: path
+      required: true
+      schema: { type: integer }
+
+  # ─────────────── SHARED RESPONSES ───────────────
+  responses:
+    BadRequest:
+      description: Validation error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Unauthorized:
+      description: Missing or invalid JWT token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Conflict:
+      description: Duplicate resource (unique constraint violation)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  # ─────────────── SCHEMAS ───────────────
+  schemas:
+
+    ErrorResponse:
+      type: object
+      properties:
+        timestamp: { type: string, format: date-time }
+        status: { type: integer }
+        error: { type: string }
+        message: { type: string }
+        path: { type: string }
+        fieldErrors:
+          type: array
+          items:
+            type: object
+            properties:
+              field: { type: string }
+              message: { type: string }
+
+    # ══════════ TAPPING SCHEDULE ══════════
+    TappingScheduleCreateRequest:
+      type: object
+      required: [plantationId, fieldId, tappingSystemCode, frequencyDays, effectiveFrom]
+      properties:
+        plantationId: { type: integer }
+        fieldId: { type: integer }
+        scheduleName: { type: string, maxLength: 100 }
+        tappingSystemCode: { type: string, description: 'Lookup code from lu_tapping_system' }
+        frequencyDays: { type: integer, minimum: 1, maximum: 7, description: 'd2=2, d3=3, d4=4' }
+        tappingDays: { type: string, maxLength: 50, description: "e.g. 'MON,WED,FRI'" }
+        expectedStartTime: { type: string, format: time, default: '04:30:00' }
+        expectedEndTime: { type: string, format: time, default: '09:00:00' }
+        effectiveFrom: { type: string, format: date }
+        effectiveTo: { type: string, format: date }
+        targetTreesPerDay: { type: integer }
+        targetYieldKgPerDay: { type: number, format: double }
+        rainCutoffMm: { type: number, format: double, default: 5.0 }
+        minDryHours: { type: number, format: double, default: 3.0 }
+        remarks: { type: string }
+
+    TappingScheduleUpdateRequest:
+      type: object
+      properties:
+        scheduleName: { type: string, maxLength: 100 }
+        tappingDays: { type: string, maxLength: 50 }
+        expectedStartTime: { type: string, format: time }
+        expectedEndTime: { type: string, format: time }
+        effectiveTo: { type: string, format: date }
+        targetTreesPerDay: { type: integer }
+        targetYieldKgPerDay: { type: number, format: double }
+        rainCutoffMm: { type: number, format: double }
+        minDryHours: { type: number, format: double }
+        status: { type: string, enum: [ACTIVE, SUSPENDED, COMPLETED] }
+        remarks: { type: string }
+
+    TappingScheduleResponse:
+      type: object
+      properties:
+        scheduleId: { type: integer, readOnly: true }
+        plantationId: { type: integer }
+        fieldId: { type: integer }
+        scheduleName: { type: string }
+        tappingSystemCode: { type: string }
+        tappingSystemName: { type: string }
+        frequencyDays: { type: integer }
+        tappingDays: { type: string }
+        expectedStartTime: { type: string, format: time }
+        expectedEndTime: { type: string, format: time }
+        effectiveFrom: { type: string, format: date }
+        effectiveTo: { type: string, format: date }
+        targetTreesPerDay: { type: integer }
+        targetYieldKgPerDay: { type: number, format: double }
+        rainCutoffMm: { type: number, format: double }
+        minDryHours: { type: number, format: double }
+        status: { type: string }
+        remarks: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+        createdBy: { type: string, readOnly: true }
+
+    PagedTappingScheduleResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/TappingScheduleResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ TAPPING TASK ══════════
+    TappingTaskCreateRequest:
+      type: object
+      required: [plantationId, fieldId, taskDate, tappingSystemCode]
+      properties:
+        plantationId: { type: integer }
+        fieldId: { type: integer }
+        divisionId: { type: integer }
+        scheduleId: { type: integer }
+        taskDate: { type: string, format: date }
+        tapperId: { type: integer, description: 'Cross-module reference to worker.worker_id (Module 4)' }
+        tapperName: { type: string, maxLength: 200 }
+        assignedBy: { type: string, maxLength: 100 }
+        tappingSystemCode: { type: string, description: 'Lookup code from lu_tapping_system' }
+        panelCode: { type: string, maxLength: 20 }
+        totalTreesAssigned: { type: integer, minimum: 0 }
+        remarks: { type: string }
+
+    TappingTaskUpdateRequest:
+      type: object
+      properties:
+        tapperId: { type: integer }
+        tapperName: { type: string, maxLength: 200 }
+        status: { type: string, description: 'Lookup code from lu_tapping_task_status' }
+        actualStartTime: { type: string, format: date-time }
+        actualEndTime: { type: string, format: date-time }
+        startGpsLatitude: { type: number, format: double, minimum: -90, maximum: 90 }
+        startGpsLongitude: { type: number, format: double, minimum: -180, maximum: 180 }
+        endGpsLatitude: { type: number, format: double, minimum: -90, maximum: 90 }
+        endGpsLongitude: { type: number, format: double, minimum: -180, maximum: 180 }
+        treesTapped: { type: integer, minimum: 0 }
+        treesSkipped: { type: integer, minimum: 0 }
+        treesWithTpd: { type: integer, minimum: 0 }
+        treesDryPanel: { type: integer, minimum: 0 }
+        totalLatexKg: { type: number, format: double }
+        totalCupLumpKg: { type: number, format: double }
+        totalTreeLaceKg: { type: number, format: double }
+        avgDrcPct: { type: number, format: double }
+        skipReasonCode: { type: string, description: 'Lookup code from lu_tapping_skip_reason' }
+        skipRemarks: { type: string }
+        weatherTempC: { type: number, format: double }
+        weatherHumidityPct: { type: number, format: double }
+        weatherRainfallMm: { type: number, format: double }
+        weatherCondition: { type: string, enum: [CLEAR, CLOUDY, LIGHT_RAIN, HEAVY_RAIN, DRIZZLE, FOG, WINDY] }
+        smartKnifeDeviceId: { type: string, maxLength: 50 }
+        gpsWearableId: { type: string, maxLength: 50 }
+        geofenceVerified: { type: boolean }
+        tappingQualityScore: { type: number, format: double, minimum: 0, maximum: 10 }
+        cutAngleDeviationDeg: { type: number, format: double }
+        barkConsumptionNote: { type: string, maxLength: 100 }
+        supervisorVerified: { type: boolean }
+        verifiedBy: { type: string, maxLength: 100 }
+        remarks: { type: string }
+
+    TappingTaskResponse:
+      type: object
+      properties:
+        taskId: { type: integer, format: int64, readOnly: true }
+        plantationId: { type: integer }
+        fieldId: { type: integer }
+        divisionId: { type: integer }
+        scheduleId: { type: integer }
+        taskDate: { type: string, format: date }
+        tapperId: { type: integer }
+        tapperName: { type: string }
+        assignedBy: { type: string }
+        assignedAt: { type: string, format: date-time, readOnly: true }
+        tappingSystemCode: { type: string }
+        tappingSystemName: { type: string }
+        panelCode: { type: string }
+        status: { type: string }
+        statusName: { type: string }
+        actualStartTime: { type: string, format: date-time }
+        actualEndTime: { type: string, format: date-time }
+        startGpsLatitude: { type: number, format: double }
+        startGpsLongitude: { type: number, format: double }
+        endGpsLatitude: { type: number, format: double }
+        endGpsLongitude: { type: number, format: double }
+        totalTreesAssigned: { type: integer }
+        treesTapped: { type: integer }
+        treesSkipped: { type: integer }
+        treesWithTpd: { type: integer }
+        treesDryPanel: { type: integer }
+        totalLatexKg: { type: number, format: double }
+        totalCupLumpKg: { type: number, format: double }
+        totalTreeLaceKg: { type: number, format: double }
+        totalYieldKg: { type: number, format: double, readOnly: true, description: 'Auto-calculated: sum of latex + cup lump + tree lace' }
+        yieldPerTreeG: { type: number, format: double, readOnly: true, description: 'Auto-calculated: totalYieldKg / treesTapped * 1000' }
+        avgDrcPct: { type: number, format: double }
+        skipReasonCode: { type: string }
+        skipReasonName: { type: string }
+        skipRemarks: { type: string }
+        weatherTempC: { type: number, format: double }
+        weatherHumidityPct: { type: number, format: double }
+        weatherRainfallMm: { type: number, format: double }
+        weatherCondition: { type: string }
+        smartKnifeDeviceId: { type: string }
+        gpsWearableId: { type: string }
+        geofenceVerified: { type: boolean }
+        tappingQualityScore: { type: number, format: double }
+        cutAngleDeviationDeg: { type: number, format: double }
+        barkConsumptionNote: { type: string }
+        supervisorVerified: { type: boolean }
+        verifiedBy: { type: string }
+        verifiedAt: { type: string, format: date-time, readOnly: true }
+        aiYieldPredictionKg: { type: number, format: double, readOnly: true }
+        aiQualityFlags: { type: string, readOnly: true }
+        blockchainTxHash: { type: string, readOnly: true }
+        remarks: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+        createdBy: { type: string, readOnly: true }
+        updatedBy: { type: string, readOnly: true }
+
+    PagedTappingTaskResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/TappingTaskResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ TREE DETAIL ══════════
+    TreeDetailCreateRequest:
+      type: object
+      required: [treeId]
+      properties:
+        treeId: { type: integer, format: int64 }
+        tagUid: { type: string, maxLength: 100 }
+        scannedAt: { type: string, format: date-time }
+        wasTapped: { type: boolean, default: true }
+        skipReasonCode: { type: string, description: 'Lookup code from lu_tapping_skip_reason' }
+        latexVolumeMl: { type: number, format: double }
+        cupLumpG: { type: number, format: double }
+        panelCode: { type: string, maxLength: 20 }
+        cutLengthCm: { type: number, format: double }
+        cutDepthMm: { type: number, format: double }
+        cutAngleDeg: { type: number, format: double }
+        barkShavingMm: { type: number, format: double }
+        photoUrl: { type: string }
+        gpsLatitude: { type: number, format: double, minimum: -90, maximum: 90 }
+        gpsLongitude: { type: number, format: double, minimum: -180, maximum: 180 }
+
+    TreeDetailResponse:
+      type: object
+      properties:
+        detailId: { type: integer, format: int64, readOnly: true }
+        taskId: { type: integer, format: int64 }
+        treeId: { type: integer, format: int64 }
+        tagUid: { type: string }
+        scannedAt: { type: string, format: date-time }
+        wasTapped: { type: boolean }
+        skipReasonCode: { type: string }
+        skipReasonName: { type: string }
+        latexVolumeMl: { type: number, format: double }
+        cupLumpG: { type: number, format: double }
+        panelCode: { type: string }
+        cutLengthCm: { type: number, format: double }
+        cutDepthMm: { type: number, format: double }
+        cutAngleDeg: { type: number, format: double }
+        barkShavingMm: { type: number, format: double }
+        photoUrl: { type: string }
+        aiCutQualityScore: { type: number, format: double, readOnly: true }
+        aiObservations: { type: string, readOnly: true }
+        gpsLatitude: { type: number, format: double }
+        gpsLongitude: { type: number, format: double }
+        createdAt: { type: string, format: date-time, readOnly: true }
+
+    PagedTreeDetailResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/TreeDetailResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ COLLECTION POINT ══════════
+    CollectionPointCreateRequest:
+      type: object
+      required: [plantationId, pointCode, pointName, pointTypeCode]
+      properties:
+        plantationId: { type: integer }
+        pointCode: { type: string, maxLength: 30 }
+        pointName: { type: string, maxLength: 200 }
+        pointTypeCode: { type: string, description: 'Lookup code from lu_collection_point_type' }
+        divisionId: { type: integer }
+        latitude: { type: number, format: double, minimum: -90, maximum: 90 }
+        longitude: { type: number, format: double, minimum: -180, maximum: 180 }
+        storageCapacityKg: { type: number, format: double }
+        hasWeighbridge: { type: boolean, default: false }
+        hasDrcTesting: { type: boolean, default: false }
+
+    CollectionPointUpdateRequest:
+      type: object
+      properties:
+        pointName: { type: string, maxLength: 200 }
+        divisionId: { type: integer }
+        latitude: { type: number, format: double, minimum: -90, maximum: 90 }
+        longitude: { type: number, format: double, minimum: -180, maximum: 180 }
+        storageCapacityKg: { type: number, format: double }
+        hasWeighbridge: { type: boolean }
+        hasDrcTesting: { type: boolean }
+        status: { type: string, enum: [ACTIVE, INACTIVE, MAINTENANCE] }
+
+    CollectionPointResponse:
+      type: object
+      properties:
+        collectionPointId: { type: integer, readOnly: true }
+        plantationId: { type: integer }
+        pointCode: { type: string }
+        pointName: { type: string }
+        pointTypeCode: { type: string }
+        pointTypeName: { type: string }
+        divisionId: { type: integer }
+        latitude: { type: number, format: double }
+        longitude: { type: number, format: double }
+        storageCapacityKg: { type: number, format: double }
+        hasWeighbridge: { type: boolean }
+        hasDrcTesting: { type: boolean }
+        status: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+
+    PagedCollectionPointResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/CollectionPointResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ LATEX COLLECTION ══════════
+    LatexCollectionCreateRequest:
+      type: object
+      required: [plantationId, fieldId, collectionDate, latexGradeCode, grossWeightKg]
+      properties:
+        taskId: { type: integer, format: int64 }
+        plantationId: { type: integer }
+        fieldId: { type: integer }
+        collectionDate: { type: string, format: date }
+        collectionTime: { type: string, format: date-time }
+        collectorName: { type: string, maxLength: 200 }
+        latexGradeCode: { type: string, description: 'Lookup code from lu_latex_grade' }
+        grossWeightKg: { type: number, format: double, exclusiveMinimum: true, minimum: 0 }
+        containerWeightKg: { type: number, format: double, default: 0 }
+        volumeLiters: { type: number, format: double }
+        drcPct: { type: number, format: double }
+        collectionPointId: { type: integer }
+        digitalScaleId: { type: string, maxLength: 50 }
+        autoWeighed: { type: boolean, default: false }
+        transportBatchId: { type: string, maxLength: 50 }
+        transportVehicle: { type: string, maxLength: 50 }
+        photoUrl: { type: string }
+        remarks: { type: string }
+
+    LatexCollectionUpdateRequest:
+      type: object
+      properties:
+        latexGradeCode: { type: string }
+        drcPct: { type: number, format: double }
+        collectionPointId: { type: integer }
+        transportBatchId: { type: string, maxLength: 50 }
+        transportVehicle: { type: string, maxLength: 50 }
+        photoUrl: { type: string }
+        remarks: { type: string }
+
+    LatexCollectionResponse:
+      type: object
+      properties:
+        collectionId: { type: integer, format: int64, readOnly: true }
+        taskId: { type: integer, format: int64 }
+        plantationId: { type: integer }
+        fieldId: { type: integer }
+        collectionDate: { type: string, format: date }
+        collectionTime: { type: string, format: date-time }
+        collectorName: { type: string }
+        latexGradeCode: { type: string }
+        latexGradeName: { type: string }
+        grossWeightKg: { type: number, format: double }
+        containerWeightKg: { type: number, format: double }
+        netWeightKg: { type: number, format: double, readOnly: true, description: 'Auto-calculated: grossWeightKg - containerWeightKg' }
+        volumeLiters: { type: number, format: double }
+        drcPct: { type: number, format: double }
+        dryRubberKg: { type: number, format: double, readOnly: true, description: 'Auto-calculated: netWeightKg * drcPct / 100' }
+        collectionPointId: { type: integer }
+        digitalScaleId: { type: string }
+        autoWeighed: { type: boolean }
+        transportBatchId: { type: string }
+        transportVehicle: { type: string }
+        photoUrl: { type: string }
+        blockchainTxHash: { type: string, readOnly: true }
+        remarks: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+        createdBy: { type: string, readOnly: true }
+
+    PagedLatexCollectionResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/LatexCollectionResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ QUALITY TEST ══════════
+    QualityTestCreateRequest:
+      type: object
+      required: [parameterCode, testedValue, unitOfMeasure, testDate]
+      properties:
+        parameterCode: { type: string, description: 'Lookup code from lu_quality_parameter' }
+        testedValue: { type: number, format: double }
+        unitOfMeasure: { type: string, maxLength: 30 }
+        testDate: { type: string, format: date }
+        testTime: { type: string, format: time }
+        testedBy: { type: string, maxLength: 100 }
+        testMethod:
+          type: string
+          enum: [METROLAC, OVEN_DRY, HYDROMETER, PH_METER, TITRATION, IOT_SENSOR, VISUAL, LAB_ANALYSIS]
+        testLocation:
+          type: string
+          enum: [FIELD, COLLECTION_POINT, FACTORY_LAB, EXTERNAL_LAB]
+        remarks: { type: string }
+
+    QualityTestResponse:
+      type: object
+      properties:
+        testId: { type: integer, format: int64, readOnly: true }
+        collectionId: { type: integer, format: int64 }
+        parameterCode: { type: string }
+        parameterName: { type: string }
+        testedValue: { type: number, format: double }
+        unitOfMeasure: { type: string }
+        isWithinSpec: { type: boolean, readOnly: true }
+        deviationPct: { type: number, format: double, readOnly: true }
+        testDate: { type: string, format: date }
+        testTime: { type: string, format: time }
+        testedBy: { type: string }
+        testMethod: { type: string }
+        testLocation: { type: string }
+        remarks: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+
+    PagedQualityTestResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/QualityTestResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ IOT DEVICE ══════════
+    IotDeviceCreateRequest:
+      type: object
+      required: [deviceUid, deviceTypeCode]
+      properties:
+        deviceUid: { type: string, maxLength: 100 }
+        deviceName: { type: string, maxLength: 200 }
+        deviceTypeCode: { type: string, description: 'Lookup code from lu_iot_device_type' }
+        plantationId: { type: integer }
+        fieldId: { type: integer }
+        assignedTapperId: { type: integer, description: 'Cross-module reference to worker.worker_id (Module 4)' }
+        manufacturer: { type: string, maxLength: 100 }
+        modelNumber: { type: string, maxLength: 100 }
+        firmwareVersion: { type: string, maxLength: 50 }
+        serialNumber: { type: string, maxLength: 100 }
+        latitude: { type: number, format: double, minimum: -90, maximum: 90 }
+        longitude: { type: number, format: double, minimum: -180, maximum: 180 }
+        installedDate: { type: string, format: date }
+
+    IotDeviceUpdateRequest:
+      type: object
+      properties:
+        deviceName: { type: string, maxLength: 200 }
+        fieldId: { type: integer }
+        assignedTapperId: { type: integer }
+        firmwareVersion: { type: string, maxLength: 50 }
+        latitude: { type: number, format: double, minimum: -90, maximum: 90 }
+        longitude: { type: number, format: double, minimum: -180, maximum: 180 }
+        status: { type: string, enum: [ACTIVE, INACTIVE, MAINTENANCE, LOST, DECOMMISSIONED] }
+        batteryLevelPct: { type: number, format: double }
+        lastHeartbeatAt: { type: string, format: date-time }
+
+    IotDeviceResponse:
+      type: object
+      properties:
+        deviceId: { type: integer, readOnly: true }
+        deviceUid: { type: string }
+        deviceName: { type: string }
+        deviceTypeCode: { type: string }
+        deviceTypeName: { type: string }
+        plantationId: { type: integer }
+        fieldId: { type: integer }
+        assignedTapperId: { type: integer }
+        manufacturer: { type: string }
+        modelNumber: { type: string }
+        firmwareVersion: { type: string }
+        serialNumber: { type: string }
+        latitude: { type: number, format: double }
+        longitude: { type: number, format: double }
+        status: { type: string }
+        batteryLevelPct: { type: number, format: double }
+        lastHeartbeatAt: { type: string, format: date-time }
+        installedDate: { type: string, format: date }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+
+    PagedIotDeviceResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/IotDeviceResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ IOT READING ══════════
+    IotReadingCreateRequest:
+      type: object
+      required: [readingTimestamp]
+      properties:
+        readingTimestamp: { type: string, format: date-time }
+        temperatureC: { type: number, format: double }
+        humidityPct: { type: number, format: double }
+        rainfallMm: { type: number, format: double }
+        windSpeedKmh: { type: number, format: double }
+        cutCount: { type: integer }
+        avgCutAngleDeg: { type: number, format: double }
+        avgCutDepthMm: { type: number, format: double }
+        vibrationScore: { type: number, format: double }
+        weightKg: { type: number, format: double }
+        flowRateMlMin: { type: number, format: double }
+        gpsLatitude: { type: number, format: double, minimum: -90, maximum: 90 }
+        gpsLongitude: { type: number, format: double, minimum: -180, maximum: 180 }
+        stepCount: { type: integer }
+        heartRateBpm: { type: integer }
+        batteryLevelPct: { type: number, format: double }
+        signalStrengthDbm: { type: integer }
+
+    IotReadingResponse:
+      type: object
+      properties:
+        readingId: { type: integer, format: int64, readOnly: true }
+        deviceId: { type: integer }
+        readingTimestamp: { type: string, format: date-time }
+        temperatureC: { type: number, format: double }
+        humidityPct: { type: number, format: double }
+        rainfallMm: { type: number, format: double }
+        windSpeedKmh: { type: number, format: double }
+        cutCount: { type: integer }
+        avgCutAngleDeg: { type: number, format: double }
+        avgCutDepthMm: { type: number, format: double }
+        vibrationScore: { type: number, format: double }
+        weightKg: { type: number, format: double }
+        flowRateMlMin: { type: number, format: double }
+        gpsLatitude: { type: number, format: double }
+        gpsLongitude: { type: number, format: double }
+        stepCount: { type: integer }
+        heartRateBpm: { type: integer }
+        batteryLevelPct: { type: number, format: double }
+        signalStrengthDbm: { type: integer }
+        createdAt: { type: string, format: date-time, readOnly: true }
+
+    PagedIotReadingResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/IotReadingResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ WEATHER OBSERVATION ══════════
+    WeatherObservationCreateRequest:
+      type: object
+      required: [plantationId, observationDate]
+      properties:
+        plantationId: { type: integer }
+        fieldId: { type: integer }
+        observationDate: { type: string, format: date }
+        observationTime: { type: string, format: time }
+        temperatureMinC: { type: number, format: double }
+        temperatureMaxC: { type: number, format: double }
+        humidityMinPct: { type: number, format: double }
+        humidityMaxPct: { type: number, format: double }
+        rainfallMm: { type: number, format: double, default: 0 }
+        windSpeedMaxKmh: { type: number, format: double }
+        weatherCondition: { type: string, maxLength: 30 }
+        dataSource: { type: string, enum: [IOT_SENSOR, MANUAL, WEATHER_API, RAIN_GAUGE, WEATHER_STATION] }
+        iotDeviceId: { type: integer }
+        suitableForTapping: { type: boolean }
+        recordedBy: { type: string, maxLength: 100 }
+        remarks: { type: string }
+
+    WeatherObservationResponse:
+      type: object
+      properties:
+        observationId: { type: integer, readOnly: true }
+        plantationId: { type: integer }
+        fieldId: { type: integer }
+        observationDate: { type: string, format: date }
+        observationTime: { type: string, format: time }
+        temperatureMinC: { type: number, format: double }
+        temperatureMaxC: { type: number, format: double }
+        humidityMinPct: { type: number, format: double }
+        humidityMaxPct: { type: number, format: double }
+        rainfallMm: { type: number, format: double }
+        windSpeedMaxKmh: { type: number, format: double }
+        weatherCondition: { type: string }
+        dataSource: { type: string }
+        iotDeviceId: { type: integer }
+        suitableForTapping: { type: boolean }
+        recordedBy: { type: string }
+        remarks: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+
+    PagedWeatherObservationResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/WeatherObservationResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ ANALYTICS ══════════
+    TappingDashboardResponse:
+      type: object
+      properties:
+        taskDate: { type: string, format: date }
+        plantationCode: { type: string }
+        plantationName: { type: string }
+        fieldCode: { type: string }
+        fieldName: { type: string }
+        cloneCode: { type: string }
+        taskStatus: { type: string }
+        tapperName: { type: string }
+        treesTapped: { type: integer }
+        treesSkipped: { type: integer }
+        totalYieldKg: { type: number, format: double }
+        yieldPerTreeG: { type: number, format: double }
+        avgDrcPct: { type: number, format: double }
+        tappingQualityScore: { type: number, format: double }
+        weatherCondition: { type: string }
+        weatherRainfallMm: { type: number, format: double }
+        geofenceVerified: { type: boolean }
+        supervisorVerified: { type: boolean }
+        actualStartTime: { type: string, format: date-time }
+        actualEndTime: { type: string, format: date-time }
+        durationMinutes: { type: number, format: double }
+        skipReason: { type: string }
+
+    TapperPerformanceRankingResponse:
+      type: object
+      properties:
+        tapperId: { type: integer }
+        tapperName: { type: string }
+        plantationCode: { type: string }
+        totalDaysWorked: { type: integer }
+        totalTreesTapped: { type: integer }
+        avgTreesPerDay: { type: number, format: double }
+        totalYieldKg: { type: number, format: double }
+        avgYieldPerTreeG: { type: number, format: double }
+        avgQualityScore: { type: number, format: double }
+        avgAngleDeviation: { type: number, format: double }
+        avgTreesPerHour: { type: number, format: double }
+        onTimeDays: { type: integer }
+        onTimePct: { type: number, format: double }
+
+    TapperPerformanceDailyResponse:
+      type: object
+      properties:
+        performanceId: { type: integer, format: int64, readOnly: true }
+        tapperId: { type: integer }
+        tapperName: { type: string }
+        plantationId: { type: integer }
+        performanceDate: { type: string, format: date }
+        tasksAssigned: { type: integer }
+        tasksCompleted: { type: integer }
+        tasksPartial: { type: integer }
+        tasksCancelled: { type: integer }
+        totalTreesTapped: { type: integer }
+        totalTreesSkipped: { type: integer }
+        totalYieldKg: { type: number, format: double }
+        avgYieldPerTreeG: { type: number, format: double }
+        avgTappingQualityScore: { type: number, format: double }
+        avgCutAngleDeviation: { type: number, format: double }
+        totalTappingMinutes: { type: integer }
+        avgTreesPerHour: { type: number, format: double }
+        reportedOnTime: { type: boolean }
+        startTimeActual: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time, readOnly: true }
+
+    PagedTapperPerformanceDailyResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/TapperPerformanceDailyResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    CloneYieldResponse:
+      type: object
+      properties:
+        cloneCode: { type: string }
+        plantationCode: { type: string }
+        treeAgeYears: { type: integer }
+        fieldsTapped: { type: integer }
+        tappingDays: { type: integer }
+        avgDailyWetYieldKg: { type: number, format: double }
+        avgDailyDryRubberKg: { type: number, format: double }
+        avgYieldPerTreeG: { type: number, format: double }
+        avgYieldPerHaKg: { type: number, format: double }
+        avgDrcPct: { type: number, format: double }
+        avgRainfallMm: { type: number, format: double }
+        rainfallYieldCorrelation: { type: number, format: double }
+
+    FieldYieldDailyResponse:
+      type: object
+      properties:
+        yieldId: { type: integer, format: int64, readOnly: true }
+        plantationId: { type: integer }
+        fieldId: { type: integer }
+        yieldDate: { type: string, format: date }
+        totalTappers: { type: integer }
+        totalTreesTapped: { type: integer }
+        tappableTrees: { type: integer }
+        fieldLatexKg: { type: number, format: double }
+        cupLumpKg: { type: number, format: double }
+        treeLaceKg: { type: number, format: double }
+        totalWetYieldKg: { type: number, format: double }
+        avgDrcPct: { type: number, format: double }
+        totalDryRubberKg: { type: number, format: double }
+        yieldPerTreeG: { type: number, format: double }
+        yieldPerHaKg: { type: number, format: double }
+        rainfallMm: { type: number, format: double }
+        weatherCondition: { type: string }
+        cloneCode: { type: string }
+        treeAgeYears: { type: integer }
+        createdAt: { type: string, format: date-time, readOnly: true }
+
+    PagedFieldYieldDailyResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/FieldYieldDailyResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    WeatherYieldCorrelationResponse:
+      type: object
+      properties:
+        observationDate: { type: string, format: date }
+        plantationCode: { type: string }
+        fieldCode: { type: string }
+        rainfallMm: { type: number, format: double }
+        temperatureMaxC: { type: number, format: double }
+        humidityMaxPct: { type: number, format: double }
+        weatherCondition: { type: string }
+        suitableForTapping: { type: boolean }
+        totalTappers: { type: integer }
+        totalTreesTapped: { type: integer }
+        totalWetYieldKg: { type: number, format: double }
+        totalDryRubberKg: { type: number, format: double }
+        yieldPerTreeG: { type: number, format: double }
+        rainCategory: { type: string, enum: ['Heavy Rain', 'Moderate Rain', 'Light Rain', 'Dry'] }
+
+    # ══════════ LOOKUPS ══════════
+    LookupItem:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        description: { type: string }
+        isActive: { type: boolean }
+
+    TappingTaskStatusLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        description: { type: string }
+        isTerminal: { type: boolean }
+        displayOrder: { type: integer }
+        isActive: { type: boolean }
+
+    LatexGradeLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        description: { type: string }
+        drcRangeMin: { type: number, format: double }
+        drcRangeMax: { type: number, format: double }
+        pricePremiumPct: { type: number, format: double }
+        isActive: { type: boolean }
+
+    TappingSkipReasonLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        reasonCategory: { type: string, enum: [WEATHER, TREE_CONDITION, TAPPER, OPERATIONAL, HOLIDAY, OTHER] }
+        description: { type: string }
+        isActive: { type: boolean }
+
+    QualityParameterLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        unitOfMeasure: { type: string }
+        minAcceptable: { type: number, format: double }
+        maxAcceptable: { type: number, format: double }
+        description: { type: string }
+        isActive: { type: boolean }
+
+    IotDeviceTypeLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        category: { type: string, enum: [TAPPING_TOOL, WEATHER_SENSOR, COLLECTION, WEARABLE, GEOFENCE] }
+        description: { type: string }
+        isActive: { type: boolean }
