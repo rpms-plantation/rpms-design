@@ -1,0 +1,23 @@
+{
+  "type": "record",
+  "name": "AttendanceScanReceived",
+  "namespace": "com.rpms.events.attendance",
+  "doc": "Emitted when a raw check-in/out scan is appended to attendance_scan_log in Module 6. Partition key: workerId. Consumed by: anomaly-detection.",
+  "fields": [
+    { "name": "metadata", "type": "com.rpms.events.EventMetadata" },
+    { "name": "scanId", "type": "long" },
+    { "name": "workerId", "type": "int" },
+    { "name": "plantationId", "type": "int" },
+    { "name": "scanTimestamp", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "scanType", "type": "string", "doc": "IN, OUT, FIELD_IN, or FIELD_OUT" },
+    { "name": "methodCode", "type": "string" },
+    { "name": "locationId", "type": ["null", "int"], "default": null },
+    { "name": "deviceId", "type": ["null", "string"], "default": null },
+    { "name": "biometricMatchScore", "type": ["null", "double"], "default": null },
+    { "name": "faceMatchScore", "type": ["null", "double"], "default": null },
+    { "name": "gpsLatitude", "type": ["null", "double"], "default": null },
+    { "name": "gpsLongitude", "type": ["null", "double"], "default": null },
+    { "name": "isVerified", "type": "boolean", "default": true },
+    { "name": "isDuplicate", "type": "boolean", "default": false }
+  ]
+}

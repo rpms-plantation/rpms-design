@@ -1,0 +1,1333 @@
+openapi: 3.0.3
+info:
+  title: RPMS Attendance Service API
+  description: |
+    Module 6 — Attendance Management.
+    Two-tier architecture: every check-in/out/field-entry/field-exit event is
+    appended to the immutable `attendance_scan_log`; the service derives/upserts
+    the per-worker-per-day `daily_attendance` record from those scans. Covers
+    muster-point/geofence locations, shift rosters, attendance regularization
+    (correction workflow), and payroll-ready monthly/plantation rollups.
+
+    **Spatial**: PostGIS Point on `attendance_location` (geofence center), `daily_attendance`
+    (check-in/check-out points, auto-synced from lat/lon by a DB trigger), and
+    `attendance_scan_log` (auto-synced GPS point). `attendance_location` also carries
+    an optional PostGIS Polygon geofence boundary. GPS coordinates exposed as
+    latitude/longitude pairs in DTOs, never raw WKT/GeoJSON.
+
+    **Immutable**: `attendance_scan_log` is append-only — GET and POST only, no PUT/DELETE.
+
+    **Framework**: Quarkus 3 + Java 21 (ADR-002)
+    **Database**: PostgreSQL 16 + PostGIS (ADR-001)
+    **Repo**: rpms-mod-attendance
+    **Depends on**: Module 1 (plantation, division), Module 3 (iot_device — cross-module
+    ID reference only, no FK), Module 4 (worker, gang, worker_leave — cross-module ID
+    reference only, no FK), Module 5 (daily_activity — cross-module ID reference only, no FK)
+  version: 1.0.0
+  contact:
+    name: RPMS Architecture Team
+  license:
+    name: Proprietary
+
+servers:
+  - url: /api/attendance
+    description: Behind API Gateway (rpms-platform)
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Attendance Locations
+    description: Muster points / gates with biometric, NFC, and geofence configuration
+  - name: Scan Log
+    description: Immutable raw check-in/out event log (audit source of truth)
+  - name: Daily Attendance
+    description: Core per-worker-per-day attendance record, derived from scan log
+  - name: Regularization
+    description: Attendance correction requests with approval workflow
+  - name: Shift Roster
+    description: Pre-assigned shift schedule per worker per day
+  - name: Monthly Summary
+    description: Payroll-ready monthly rollup per worker (read-only, computed)
+  - name: Plantation Snapshot
+    description: Estate-level daily attendance snapshot (read-only, computed)
+  - name: Analytics
+    description: Cross-attendance analytical views
+  - name: Lookups
+    description: Read-only reference data
+
+# ════════════════════════════════════════════════════════════════════
+# PATHS
+# ════════════════════════════════════════════════════════════════════
+paths:
+
+  # ─────────────────────── ATTENDANCE LOCATIONS ───────────────────────
+  /locations:
+    get:
+      tags: [Attendance Locations]
+      summary: List attendance/muster locations
+      operationId: listAttendanceLocations
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
+        - name: plantationId
+          in: query
+          schema: { type: integer }
+        - name: locationType
+          in: query
+          schema: { type: string, enum: [MUSTER_POINT, GATE, FIELD_ENTRY, FACTORY_GATE, OFFICE, NURSERY_GATE] }
+        - name: status
+          in: query
+          schema: { type: string, enum: [ACTIVE, INACTIVE, MAINTENANCE] }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedAttendanceLocationResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Attendance Locations]
+      summary: Register a new attendance location
+      description: |
+        Setting `gpsLatitude`/`gpsLongitude` auto-syncs the PostGIS `geofence_center`
+        point via a DB trigger (fn_att_loc_sync_gps).
+      operationId: createAttendanceLocation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AttendanceLocationCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttendanceLocationResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /locations/{locationId}:
+    parameters:
+      - $ref: '#/components/parameters/LocationIdPath'
+    get:
+      tags: [Attendance Locations]
+      summary: Get location by ID
+      operationId: getAttendanceLocation
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttendanceLocationResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Attendance Locations]
+      summary: Update an attendance location
+      operationId: updateAttendanceLocation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AttendanceLocationUpdateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttendanceLocationResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── SCAN LOG (immutable) ───────────────────────
+  /scan-log:
+    get:
+      tags: [Scan Log]
+      summary: List raw scan events (immutable audit log)
+      operationId: listScanLog
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
+        - name: workerId
+          in: query
+          schema: { type: integer }
+        - name: scanType
+          in: query
+          schema: { type: string, enum: [IN, OUT, FIELD_IN, FIELD_OUT] }
+        - name: fromTimestamp
+          in: query
+          schema: { type: string, format: date-time }
+        - name: toTimestamp
+          in: query
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedScanLogResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Scan Log]
+      summary: Record a raw check-in/out scan event (immutable — append-only)
+      description: |
+        Setting `gpsLatitude`/`gpsLongitude` auto-syncs the PostGIS `gps_point` via a
+        DB trigger (fn_scan_sync_gps). Recording a scan asynchronously derives/upserts
+        the corresponding `daily_attendance` row for `workerId` + the scan's date,
+        which republishes `AttendanceScanReceived`; once that day's attendance is
+        finalized (typically at shift end or via the nightly batch), `DailyAttendanceFinalized`
+        is published.
+      operationId: createScanLogEntry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ScanLogCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScanLogResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ─────────────────────── DAILY ATTENDANCE ───────────────────────
+  /daily-attendance:
+    get:
+      tags: [Daily Attendance]
+      summary: List daily attendance records
+      operationId: listDailyAttendance
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
+        - name: workerId
+          in: query
+          schema: { type: integer }
+        - name: plantationId
+          in: query
+          schema: { type: integer }
+        - name: divisionId
+          in: query
+          schema: { type: integer }
+        - name: attendanceDate
+          in: query
+          schema: { type: string, format: date }
+        - name: status
+          in: query
+          schema: { type: string, description: 'Lookup code from lu_attendance_status' }
+        - name: isLate
+          in: query
+          schema: { type: boolean }
+        - name: hasOvertime
+          in: query
+          schema: { type: boolean }
+        - name: aiAnomalyFlag
+          in: query
+          schema: { type: boolean }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedDailyAttendanceResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Daily Attendance]
+      summary: Create a daily attendance record directly (e.g. for manual/supervisor entry)
+      description: |
+        Setting both `checkInTime` and `checkOutTime` auto-derives `grossHours`,
+        `netWorkHours`, `hasOvertime`, and `overtimeHours` via a DB trigger
+        (fn_calc_attendance_hours). `isLate`/`lateMinutes` are derived as soon as
+        `checkInTime` is set, independent of checkout, by comparing against the
+        shift's `startTime` + `graceMinutes`. Setting `checkInGpsLatitude`/
+        `checkInGpsLongitude` (and the check-out equivalents) auto-syncs the
+        PostGIS points — do not send the derived fields; any value sent is overwritten.
+      operationId: createDailyAttendance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DailyAttendanceCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DailyAttendanceResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /daily-attendance/{attendanceId}:
+    parameters:
+      - $ref: '#/components/parameters/AttendanceIdPath'
+    get:
+      tags: [Daily Attendance]
+      summary: Get daily attendance by ID
+      operationId: getDailyAttendance
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DailyAttendanceResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Daily Attendance]
+      summary: Update a daily attendance record (check-out, status correction, overtime approval)
+      operationId: updateDailyAttendance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DailyAttendanceUpdateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DailyAttendanceResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── REGULARIZATION ───────────────────────
+  /regularizations:
+    get:
+      tags: [Regularization]
+      summary: List attendance regularization requests
+      operationId: listRegularizations
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
+        - name: attendanceId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: approvalStatus
+          in: query
+          schema: { type: string, enum: [PENDING, APPROVED, REJECTED] }
+        - name: requestedBy
+          in: query
+          schema: { type: integer }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedRegularizationResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Regularization]
+      summary: Request an attendance correction
+      operationId: createRegularization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegularizationCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RegularizationResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /regularizations/{regularizationId}:
+    parameters:
+      - $ref: '#/components/parameters/RegularizationIdPath'
+    get:
+      tags: [Regularization]
+      summary: Get regularization request by ID
+      operationId: getRegularization
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RegularizationResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Regularization]
+      summary: Approve or reject a regularization request
+      description: |
+        Setting `approvalStatus` to `APPROVED` triggers a DB trigger
+        (fn_apply_regularization) that applies `correctedStatus`/`correctedCheckIn`/
+        `correctedCheckOut` onto the linked `daily_attendance` row and marks it
+        `isRegularized = true`, which in turn re-fires the hours/late/overtime
+        recalculation trigger.
+      operationId: updateRegularization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegularizationDecisionRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RegularizationResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── SHIFT ROSTER ───────────────────────
+  /shift-rosters:
+    get:
+      tags: [Shift Roster]
+      summary: List worker shift roster entries
+      operationId: listShiftRosters
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
+        - name: workerId
+          in: query
+          schema: { type: integer }
+        - name: plantationId
+          in: query
+          schema: { type: integer }
+        - name: rosterDate
+          in: query
+          schema: { type: string, format: date }
+        - name: shiftCode
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedShiftRosterResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Shift Roster]
+      summary: Assign a worker's shift for a given day
+      operationId: createShiftRoster
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ShiftRosterCreateRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShiftRosterResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /shift-rosters/{rosterId}:
+    parameters:
+      - $ref: '#/components/parameters/RosterIdPath'
+    put:
+      tags: [Shift Roster]
+      summary: Update a roster entry
+      operationId: updateShiftRoster
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ShiftRosterUpdateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShiftRosterResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── MONTHLY SUMMARY (read-only) ───────────────────────
+  /monthly-summaries:
+    get:
+      tags: [Monthly Summary]
+      summary: List payroll-ready monthly attendance summaries (computed by scheduled aggregation)
+      operationId: listMonthlySummaries
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - name: workerId
+          in: query
+          schema: { type: integer }
+        - name: plantationId
+          in: query
+          schema: { type: integer }
+        - name: summaryYear
+          in: query
+          schema: { type: integer }
+        - name: summaryMonth
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 12 }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedMonthlySummaryResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /monthly-summaries/{summaryId}/verify:
+    parameters:
+      - $ref: '#/components/parameters/SummaryIdPath'
+    put:
+      tags: [Monthly Summary]
+      summary: Manager sign-off on a monthly summary
+      operationId: verifyMonthlySummary
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MonthlySummaryVerifyRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MonthlySummaryResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────── PLANTATION SNAPSHOT (read-only) ───────────────────────
+  /plantation-snapshots:
+    get:
+      tags: [Plantation Snapshot]
+      summary: List estate-level daily attendance snapshots (computed by scheduled aggregation)
+      operationId: listPlantationSnapshots
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - name: plantationId
+          in: query
+          schema: { type: integer }
+        - name: snapshotDate
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PagedPlantationSnapshotResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ─────────────────────── ANALYTICS ───────────────────────
+  /analytics/attendance-dashboard:
+    get:
+      tags: [Analytics]
+      summary: Daily attendance dashboard (from vw_attendance_dashboard)
+      operationId: getAttendanceDashboard
+      parameters:
+        - name: attendanceDate
+          in: query
+          schema: { type: string, format: date }
+        - name: plantationCode
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AttendanceDashboardResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /analytics/absenteeism-patterns:
+    get:
+      tags: [Analytics]
+      summary: Absenteeism pattern analysis, last 30 days (from vw_absenteeism_patterns)
+      operationId: getAbsenteeismPatterns
+      parameters:
+        - name: plantationCode
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AbsenteeismPatternResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /analytics/overtime-summary:
+    get:
+      tags: [Analytics]
+      summary: Overtime summary (from vw_overtime_summary)
+      operationId: getOvertimeSummary
+      parameters:
+        - name: plantationCode
+          in: query
+          schema: { type: string }
+        - name: attendanceDate
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/OvertimeSummaryResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /analytics/payroll-attendance:
+    get:
+      tags: [Analytics]
+      summary: Payroll-ready monthly view (from vw_payroll_attendance)
+      operationId: getPayrollAttendance
+      parameters:
+        - name: plantationCode
+          in: query
+          schema: { type: string }
+        - name: summaryYear
+          in: query
+          schema: { type: integer }
+        - name: summaryMonth
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 12 }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PayrollAttendanceResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ─────────────────────── LOOKUPS ───────────────────────
+  /lookups/attendance-statuses:
+    get:
+      tags: [Lookups]
+      summary: List attendance status lookup
+      operationId: listAttendanceStatuses
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AttendanceStatusLookup' }
+
+  /lookups/checkin-methods:
+    get:
+      tags: [Lookups]
+      summary: List check-in method lookup
+      operationId: listCheckinMethods
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CheckinMethodLookup' }
+
+  /lookups/shifts:
+    get:
+      tags: [Lookups]
+      summary: List shift definition lookup
+      operationId: listShifts
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ShiftLookup' }
+
+  /lookups/overtime-types:
+    get:
+      tags: [Lookups]
+      summary: List overtime type lookup
+      operationId: listOvertimeTypes
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/OvertimeTypeLookup' }
+
+  /lookups/regularization-reasons:
+    get:
+      tags: [Lookups]
+      summary: List regularization reason lookup
+      operationId: listRegularizationReasons
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RegularizationReasonLookup' }
+
+# ════════════════════════════════════════════════════════════════════
+# COMPONENTS
+# ════════════════════════════════════════════════════════════════════
+components:
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Keycloak-issued JWT token
+
+  # ─────────────── SHARED PARAMETERS ───────────────
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      schema: { type: integer, default: 0, minimum: 0 }
+      description: Zero-based page number
+    SizeParam:
+      name: size
+      in: query
+      schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+      description: Page size
+    SortParam:
+      name: sort
+      in: query
+      schema: { type: string }
+      description: 'Sort field and direction (e.g., attendanceDate,desc)'
+    LocationIdPath:
+      name: locationId
+      in: path
+      required: true
+      schema: { type: integer }
+    AttendanceIdPath:
+      name: attendanceId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    RegularizationIdPath:
+      name: regularizationId
+      in: path
+      required: true
+      schema: { type: integer }
+    RosterIdPath:
+      name: rosterId
+      in: path
+      required: true
+      schema: { type: integer }
+    SummaryIdPath:
+      name: summaryId
+      in: path
+      required: true
+      schema: { type: integer }
+
+  # ─────────────── SHARED RESPONSES ───────────────
+  responses:
+    BadRequest:
+      description: Validation error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Unauthorized:
+      description: Missing or invalid JWT token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Conflict:
+      description: Duplicate resource (unique constraint violation)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  # ─────────────── SCHEMAS ───────────────
+  schemas:
+
+    ErrorResponse:
+      type: object
+      properties:
+        timestamp: { type: string, format: date-time }
+        status: { type: integer }
+        error: { type: string }
+        message: { type: string }
+        path: { type: string }
+        fieldErrors:
+          type: array
+          items:
+            type: object
+            properties:
+              field: { type: string }
+              message: { type: string }
+
+    # ══════════ ATTENDANCE LOCATION ══════════
+    AttendanceLocationCreateRequest:
+      type: object
+      required: [plantationId, locationCode, locationName, locationType]
+      properties:
+        plantationId: { type: integer }
+        divisionId: { type: integer }
+        locationCode: { type: string, maxLength: 30 }
+        locationName: { type: string, maxLength: 200 }
+        locationType: { type: string, enum: [MUSTER_POINT, GATE, FIELD_ENTRY, FACTORY_GATE, OFFICE, NURSERY_GATE] }
+        hasBiometric: { type: boolean, default: false }
+        hasNfcReader: { type: boolean, default: false }
+        hasQrScanner: { type: boolean, default: false }
+        iotDeviceId: { type: integer, description: 'Cross-module reference to iot_device.device_id (Module 3)' }
+        geofenceRadiusM: { type: number, format: double, default: 50 }
+        gpsLatitude: { type: number, format: double, minimum: -90, maximum: 90 }
+        gpsLongitude: { type: number, format: double, minimum: -180, maximum: 180 }
+
+    AttendanceLocationUpdateRequest:
+      type: object
+      properties:
+        locationName: { type: string, maxLength: 200 }
+        hasBiometric: { type: boolean }
+        hasNfcReader: { type: boolean }
+        hasQrScanner: { type: boolean }
+        iotDeviceId: { type: integer }
+        geofenceRadiusM: { type: number, format: double }
+        gpsLatitude: { type: number, format: double, minimum: -90, maximum: 90 }
+        gpsLongitude: { type: number, format: double, minimum: -180, maximum: 180 }
+        status: { type: string, enum: [ACTIVE, INACTIVE, MAINTENANCE] }
+
+    AttendanceLocationResponse:
+      type: object
+      properties:
+        locationId: { type: integer, readOnly: true }
+        plantationId: { type: integer }
+        divisionId: { type: integer }
+        locationCode: { type: string }
+        locationName: { type: string }
+        locationType: { type: string }
+        hasBiometric: { type: boolean }
+        hasNfcReader: { type: boolean }
+        hasQrScanner: { type: boolean }
+        iotDeviceId: { type: integer }
+        geofenceRadiusM: { type: number, format: double }
+        gpsLatitude: { type: number, format: double }
+        gpsLongitude: { type: number, format: double }
+        status: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+
+    PagedAttendanceLocationResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/AttendanceLocationResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ SCAN LOG ══════════
+    ScanLogCreateRequest:
+      type: object
+      required: [workerId, plantationId, scanTimestamp, scanType, methodCode]
+      properties:
+        workerId: { type: integer }
+        plantationId: { type: integer }
+        scanTimestamp: { type: string, format: date-time }
+        scanType: { type: string, enum: [IN, OUT, FIELD_IN, FIELD_OUT] }
+        methodCode: { type: string, description: 'Lookup code from lu_checkin_method' }
+        locationId: { type: integer }
+        deviceId: { type: string, maxLength: 100 }
+        biometricMatchScore: { type: number, format: double, minimum: 0, maximum: 100 }
+        nfcBadgeUid: { type: string, maxLength: 100 }
+        gpsLatitude: { type: number, format: double, minimum: -90, maximum: 90 }
+        gpsLongitude: { type: number, format: double, minimum: -180, maximum: 180 }
+        gpsAccuracyM: { type: number, format: double }
+        photoUrl: { type: string, maxLength: 1000 }
+        faceMatchScore: { type: number, format: double, minimum: 0, maximum: 100 }
+
+    ScanLogResponse:
+      type: object
+      properties:
+        scanId: { type: integer, format: int64, readOnly: true }
+        workerId: { type: integer }
+        plantationId: { type: integer }
+        scanTimestamp: { type: string, format: date-time }
+        scanType: { type: string }
+        methodCode: { type: string }
+        locationId: { type: integer }
+        deviceId: { type: string }
+        biometricMatchScore: { type: number, format: double }
+        nfcBadgeUid: { type: string }
+        gpsLatitude: { type: number, format: double }
+        gpsLongitude: { type: number, format: double }
+        gpsAccuracyM: { type: number, format: double }
+        photoUrl: { type: string }
+        faceMatchScore: { type: number, format: double }
+        isVerified: { type: boolean, readOnly: true }
+        rejectionReason: { type: string, readOnly: true }
+        isDuplicate: { type: boolean, readOnly: true }
+        previousScanId: { type: integer, format: int64, readOnly: true }
+        createdAt: { type: string, format: date-time, readOnly: true }
+
+    PagedScanLogResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/ScanLogResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ DAILY ATTENDANCE ══════════
+    DailyAttendanceCreateRequest:
+      type: object
+      required: [workerId, plantationId, attendanceDate, shiftCode]
+      properties:
+        workerId: { type: integer }
+        plantationId: { type: integer }
+        divisionId: { type: integer }
+        attendanceDate: { type: string, format: date }
+        shiftCode: { type: string, description: 'Lookup code from lu_shift' }
+        attendanceStatus: { type: string, default: 'PRESENT', description: 'Lookup code from lu_attendance_status' }
+        checkInTime: { type: string, format: date-time }
+        checkInMethod: { type: string, description: 'Lookup code from lu_checkin_method' }
+        checkInLocationId: { type: integer }
+        checkInGpsLatitude: { type: number, format: double, minimum: -90, maximum: 90 }
+        checkInGpsLongitude: { type: number, format: double, minimum: -180, maximum: 180 }
+        checkInDeviceId: { type: string, maxLength: 100 }
+        checkInPhotoUrl: { type: string, maxLength: 1000 }
+        leaveId: { type: integer, description: 'Cross-module reference to worker_leave.leave_id (Module 4) if absent on approved leave' }
+        primaryActivityId: { type: integer, format: int64, description: 'Cross-module reference to daily_activity.activity_id (Module 5)' }
+        remarks: { type: string }
+
+    DailyAttendanceUpdateRequest:
+      type: object
+      properties:
+        attendanceStatus: { type: string }
+        checkOutTime: { type: string, format: date-time }
+        checkOutMethod: { type: string }
+        checkOutLocationId: { type: integer }
+        checkOutGpsLatitude: { type: number, format: double, minimum: -90, maximum: 90 }
+        checkOutGpsLongitude: { type: number, format: double, minimum: -180, maximum: 180 }
+        overtimeTypeCode: { type: string }
+        overtimeApproved: { type: boolean }
+        overtimeApprovedBy: { type: integer }
+        leaveId: { type: integer }
+        primaryActivityId: { type: integer, format: int64 }
+        geofenceEntryTime: { type: string, format: date-time }
+        geofenceExitTime: { type: string, format: date-time }
+        geofenceVerified: { type: boolean }
+        remarks: { type: string }
+
+    DailyAttendanceResponse:
+      type: object
+      properties:
+        attendanceId: { type: integer, format: int64, readOnly: true }
+        workerId: { type: integer }
+        workerName: { type: string }
+        plantationId: { type: integer }
+        divisionId: { type: integer }
+        attendanceDate: { type: string, format: date }
+        shiftCode: { type: string }
+        shiftName: { type: string }
+        attendanceStatus: { type: string }
+        attendanceStatusName: { type: string }
+        checkInTime: { type: string, format: date-time }
+        checkInMethod: { type: string }
+        checkInLocationId: { type: integer }
+        checkInGpsLatitude: { type: number, format: double }
+        checkInGpsLongitude: { type: number, format: double }
+        checkInDeviceId: { type: string }
+        checkInPhotoUrl: { type: string }
+        checkOutTime: { type: string, format: date-time }
+        checkOutMethod: { type: string }
+        checkOutLocationId: { type: integer }
+        checkOutGpsLatitude: { type: number, format: double }
+        checkOutGpsLongitude: { type: number, format: double }
+        grossHours: { type: number, format: double, readOnly: true, description: 'Auto-derived: checkOutTime - checkInTime' }
+        breakMinutes: { type: integer }
+        netWorkHours: { type: number, format: double, readOnly: true, description: 'Auto-derived: grossHours - breakMinutes' }
+        isLate: { type: boolean, readOnly: true, description: 'Auto-derived as soon as checkInTime is set, vs. shift startTime + graceMinutes' }
+        lateMinutes: { type: integer, readOnly: true }
+        isEarlyDeparture: { type: boolean }
+        earlyDepartureMin: { type: integer }
+        hasOvertime: { type: boolean, readOnly: true, description: 'Auto-derived: netWorkHours > shift workHours' }
+        overtimeHours: { type: number, format: double, readOnly: true }
+        overtimeTypeCode: { type: string }
+        overtimeApproved: { type: boolean }
+        overtimeApprovedBy: { type: integer }
+        leaveId: { type: integer }
+        primaryActivityId: { type: integer, format: int64 }
+        geofenceEntryTime: { type: string, format: date-time }
+        geofenceExitTime: { type: string, format: date-time }
+        geofenceVerified: { type: boolean }
+        timeInFieldHours: { type: number, format: double }
+        isRegularized: { type: boolean, readOnly: true }
+        regularizationId: { type: integer, readOnly: true }
+        aiAnomalyFlag: { type: boolean, readOnly: true }
+        aiAnomalyType: { type: string, readOnly: true }
+        aiConfidence: { type: number, format: double, readOnly: true }
+        remarks: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+        createdBy: { type: string, readOnly: true }
+        updatedBy: { type: string, readOnly: true }
+
+    PagedDailyAttendanceResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/DailyAttendanceResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ REGULARIZATION ══════════
+    RegularizationCreateRequest:
+      type: object
+      required: [attendanceId, correctedStatus, reasonCode, justification, requestedBy]
+      properties:
+        attendanceId: { type: integer, format: int64 }
+        originalStatus: { type: string }
+        correctedStatus: { type: string, description: 'Lookup code from lu_attendance_status' }
+        originalCheckIn: { type: string, format: date-time }
+        correctedCheckIn: { type: string, format: date-time }
+        originalCheckOut: { type: string, format: date-time }
+        correctedCheckOut: { type: string, format: date-time }
+        reasonCode: { type: string, description: 'Lookup code from lu_regularization_reason' }
+        justification: { type: string }
+        supportingDocUrl: { type: string }
+        requestedBy: { type: integer }
+
+    RegularizationDecisionRequest:
+      type: object
+      required: [approvalStatus]
+      properties:
+        approvalStatus: { type: string, enum: [APPROVED, REJECTED] }
+        approvedBy: { type: integer }
+        rejectionReason: { type: string }
+
+    RegularizationResponse:
+      type: object
+      properties:
+        regularizationId: { type: integer, readOnly: true }
+        attendanceId: { type: integer, format: int64 }
+        originalStatus: { type: string }
+        correctedStatus: { type: string }
+        originalCheckIn: { type: string, format: date-time }
+        correctedCheckIn: { type: string, format: date-time }
+        originalCheckOut: { type: string, format: date-time }
+        correctedCheckOut: { type: string, format: date-time }
+        reasonCode: { type: string }
+        reasonName: { type: string }
+        justification: { type: string }
+        supportingDocUrl: { type: string }
+        requestedBy: { type: integer }
+        requestedAt: { type: string, format: date-time, readOnly: true }
+        approvalStatus: { type: string }
+        approvedBy: { type: integer }
+        approvedAt: { type: string, format: date-time, readOnly: true }
+        rejectionReason: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+
+    PagedRegularizationResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/RegularizationResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ SHIFT ROSTER ══════════
+    ShiftRosterCreateRequest:
+      type: object
+      required: [workerId, plantationId, rosterDate, shiftCode]
+      properties:
+        workerId: { type: integer }
+        plantationId: { type: integer }
+        rosterDate: { type: string, format: date }
+        shiftCode: { type: string, description: 'Lookup code from lu_shift' }
+        isRestDay: { type: boolean, default: false }
+        isHoliday: { type: boolean, default: false }
+        assignedFieldId: { type: integer }
+        assignedGangId: { type: integer, description: 'Cross-module reference to gang.gang_id (Module 4)' }
+        remarks: { type: string }
+
+    ShiftRosterUpdateRequest:
+      type: object
+      properties:
+        shiftCode: { type: string }
+        isRestDay: { type: boolean }
+        isHoliday: { type: boolean }
+        assignedFieldId: { type: integer }
+        assignedGangId: { type: integer }
+        remarks: { type: string }
+
+    ShiftRosterResponse:
+      type: object
+      properties:
+        rosterId: { type: integer, readOnly: true }
+        workerId: { type: integer }
+        workerName: { type: string }
+        plantationId: { type: integer }
+        rosterDate: { type: string, format: date }
+        shiftCode: { type: string }
+        shiftName: { type: string }
+        isRestDay: { type: boolean }
+        isHoliday: { type: boolean }
+        assignedFieldId: { type: integer }
+        assignedGangId: { type: integer }
+        remarks: { type: string }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        createdBy: { type: string, readOnly: true }
+
+    PagedShiftRosterResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/ShiftRosterResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ MONTHLY SUMMARY ══════════
+    MonthlySummaryVerifyRequest:
+      type: object
+      required: [verifiedBy]
+      properties:
+        verifiedBy: { type: integer }
+
+    MonthlySummaryResponse:
+      type: object
+      properties:
+        summaryId: { type: integer, readOnly: true }
+        workerId: { type: integer }
+        workerName: { type: string }
+        plantationId: { type: integer }
+        summaryMonth: { type: integer }
+        summaryYear: { type: integer }
+        calendarDays: { type: integer }
+        workingDays: { type: integer }
+        daysPresent: { type: integer }
+        daysHalf: { type: integer }
+        daysLate: { type: integer }
+        daysEarlyOut: { type: integer }
+        daysAbsentPaid: { type: integer }
+        daysAbsentUnpaid: { type: integer }
+        daysHoliday: { type: integer }
+        daysRest: { type: integer }
+        daysTraining: { type: integer }
+        daysOnLeave: { type: integer }
+        totalWorkHours: { type: number, format: double }
+        totalOvertimeHours: { type: number, format: double }
+        totalOtNormalHrs: { type: number, format: double }
+        totalOtHolidayHrs: { type: number, format: double }
+        totalOtNightHrs: { type: number, format: double }
+        payableDays: { type: number, format: double }
+        attendanceRatePct: { type: number, format: double }
+        eligibleForAttendanceBonus: { type: boolean }
+        attendanceBonusAmount: { type: number, format: double }
+        totalLateMinutes: { type: integer }
+        totalAnomalies: { type: integer }
+        avgTimeInFieldHours: { type: number, format: double }
+        verifiedBy: { type: integer }
+        verifiedAt: { type: string, format: date-time, readOnly: true }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+
+    PagedMonthlySummaryResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/MonthlySummaryResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ PLANTATION SNAPSHOT ══════════
+    PlantationSnapshotResponse:
+      type: object
+      properties:
+        snapshotId: { type: integer, readOnly: true }
+        plantationId: { type: integer }
+        divisionId: { type: integer }
+        snapshotDate: { type: string, format: date }
+        totalWorkers: { type: integer }
+        workersPresent: { type: integer }
+        workersLate: { type: integer }
+        workersHalfDay: { type: integer }
+        workersOnLeave: { type: integer }
+        workersAbsentUa: { type: integer }
+        workersHoliday: { type: integer }
+        workersTraining: { type: integer }
+        tappersPresent: { type: integer }
+        tappersTotal: { type: integer }
+        fieldWorkersPresent: { type: integer }
+        factoryWorkersPresent: { type: integer }
+        attendanceRatePct: { type: number, format: double }
+        tapperAttendancePct: { type: number, format: double }
+        weatherCondition: { type: string }
+        rainfallMm: { type: number, format: double }
+        aiPatternAlerts: { type: string, readOnly: true }
+        createdAt: { type: string, format: date-time, readOnly: true }
+
+    PagedPlantationSnapshotResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items: { $ref: '#/components/schemas/PlantationSnapshotResponse' }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+    # ══════════ ANALYTICS ══════════
+    AttendanceDashboardResponse:
+      type: object
+      properties:
+        attendanceDate: { type: string, format: date }
+        plantationCode: { type: string }
+        divisionCode: { type: string }
+        employeeCode: { type: string }
+        fullName: { type: string }
+        role: { type: string }
+        gangCode: { type: string }
+        shiftName: { type: string }
+        shiftStart: { type: string, format: time }
+        shiftEnd: { type: string, format: time }
+        attendanceStatus: { type: string }
+        displayColor: { type: string }
+        isPresent: { type: boolean }
+        isPaid: { type: boolean }
+        checkInTime: { type: string, format: date-time }
+        checkInMethod: { type: string }
+        checkOutTime: { type: string, format: date-time }
+        netWorkHours: { type: number, format: double }
+        isLate: { type: boolean }
+        lateMinutes: { type: integer }
+        isEarlyDeparture: { type: boolean }
+        hasOvertime: { type: boolean }
+        overtimeHours: { type: number, format: double }
+        geofenceVerified: { type: boolean }
+        timeInFieldHours: { type: number, format: double }
+        aiAnomalyFlag: { type: boolean }
+        aiAnomalyType: { type: string }
+        isRegularized: { type: boolean }
+
+    AbsenteeismPatternResponse:
+      type: object
+      properties:
+        workerId: { type: integer }
+        employeeCode: { type: string }
+        fullName: { type: string }
+        plantationCode: { type: string }
+        role: { type: string }
+        totalAbsentDays: { type: integer }
+        unauthorizedAbsences: { type: integer }
+        lateDays: { type: integer }
+        maxConsecutiveAbsent: { type: integer }
+        mostCommonAbsentDow: { type: integer }
+        attendanceRate30d: { type: number, format: double }
+
+    OvertimeSummaryResponse:
+      type: object
+      properties:
+        employeeCode: { type: string }
+        fullName: { type: string }
+        plantationCode: { type: string }
+        role: { type: string }
+        attendanceDate: { type: string, format: date }
+        shiftName: { type: string }
+        overtimeName: { type: string }
+        multiplier: { type: number, format: double }
+        netWorkHours: { type: number, format: double }
+        overtimeHours: { type: number, format: double }
+        otEquivalentHours: { type: number, format: double }
+        overtimeApproved: { type: boolean }
+        approvedBy: { type: string }
+
+    PayrollAttendanceResponse:
+      type: object
+      properties:
+        summaryYear: { type: integer }
+        summaryMonth: { type: integer }
+        plantationCode: { type: string }
+        employeeCode: { type: string }
+        fullName: { type: string }
+        role: { type: string }
+        employmentTypeName: { type: string }
+        workingDays: { type: integer }
+        daysPresent: { type: integer }
+        daysHalf: { type: integer }
+        daysOnLeave: { type: integer }
+        daysAbsentUnpaid: { type: integer }
+        daysHoliday: { type: integer }
+        payableDays: { type: number, format: double }
+        totalWorkHours: { type: number, format: double }
+        totalOvertimeHours: { type: number, format: double }
+        totalOtNormalHrs: { type: number, format: double }
+        totalOtHolidayHrs: { type: number, format: double }
+        totalOtNightHrs: { type: number, format: double }
+        attendanceRatePct: { type: number, format: double }
+        eligibleForAttendanceBonus: { type: boolean }
+        attendanceBonusAmount: { type: number, format: double }
+        isVerified: { type: boolean }
+
+    # ══════════ LOOKUPS ══════════
+    AttendanceStatusLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        isPresent: { type: boolean }
+        isPaid: { type: boolean }
+        affectsBonus: { type: boolean }
+        displayColor: { type: string }
+        description: { type: string }
+        displayOrder: { type: integer }
+        isActive: { type: boolean }
+
+    CheckinMethodLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        reliabilityScore: { type: integer }
+        requiresDevice: { type: boolean }
+        description: { type: string }
+        isActive: { type: boolean }
+
+    ShiftLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        startTime: { type: string, format: time }
+        endTime: { type: string, format: time }
+        breakMinutes: { type: integer }
+        workHours: { type: number, format: double }
+        graceMinutes: { type: integer }
+        halfDayHours: { type: number, format: double }
+        isNightShift: { type: boolean }
+        description: { type: string }
+        isActive: { type: boolean }
+
+    OvertimeTypeLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        multiplier: { type: number, format: double }
+        maxHoursPerDay: { type: number, format: double }
+        requiresApproval: { type: boolean }
+        description: { type: string }
+        isActive: { type: boolean }
+
+    RegularizationReasonLookup:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        autoApprove: { type: boolean }
+        description: { type: string }
+        isActive: { type: boolean }

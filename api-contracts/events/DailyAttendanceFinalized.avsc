@@ -1,0 +1,25 @@
+{
+  "type": "record",
+  "name": "DailyAttendanceFinalized",
+  "namespace": "com.rpms.events.attendance",
+  "doc": "Emitted when a daily_attendance record for a worker/date is finalized (shift end or nightly batch close-out) in Module 6. Partition key: plantationId. Consumed by: reporting-service.",
+  "fields": [
+    { "name": "metadata", "type": "com.rpms.events.EventMetadata" },
+    { "name": "attendanceId", "type": "long" },
+    { "name": "workerId", "type": "int" },
+    { "name": "plantationId", "type": "int" },
+    { "name": "divisionId", "type": ["null", "int"], "default": null },
+    { "name": "attendanceDate", "type": { "type": "int", "logicalType": "date" } },
+    { "name": "shiftCode", "type": "string" },
+    { "name": "attendanceStatus", "type": "string" },
+    { "name": "checkInTime", "type": ["null", { "type": "long", "logicalType": "timestamp-millis" }], "default": null },
+    { "name": "checkOutTime", "type": ["null", { "type": "long", "logicalType": "timestamp-millis" }], "default": null },
+    { "name": "netWorkHours", "type": ["null", "double"], "default": null },
+    { "name": "isLate", "type": "boolean", "default": false },
+    { "name": "lateMinutes", "type": "int", "default": 0 },
+    { "name": "hasOvertime", "type": "boolean", "default": false },
+    { "name": "overtimeHours", "type": ["null", "double"], "default": null },
+    { "name": "isRegularized", "type": "boolean", "default": false },
+    { "name": "aiAnomalyFlag", "type": "boolean", "default": false }
+  ]
+}
