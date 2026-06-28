@@ -40,8 +40,14 @@ From `rpms-platform`:
 
 ```bash
 cd rpms-platform/infra/docker
-docker compose -f docker-compose.dev.yml up -d
+docker compose -p rpms-full -f docker-compose.full.yml up -d
 ```
+
+> The `-p rpms-full` project name matters — it must match whatever project name the
+> stack was originally brought up with, or Compose won't recognize the existing
+> containers/volumes as "its own" and may try to **recreate** them (which can wipe a
+> running Postgres if its volume mapping differs from what you expect). If you're not
+> sure what project name is already in use, check first: `docker inspect <container> --format '{{index .Config.Labels "com.docker.compose.project"}}'`.
 
 This brings up Postgres (5432), Kafka (9092), Schema Registry (8081), Keycloak (8180),
 Redis (6379), MinIO (9000/9001), pgAdmin, and Kafdrop.
@@ -209,13 +215,37 @@ plantation snapshots, analytics).
 
 ## Shutting everything down
 
+Stop things in the reverse order you started them: shell → backends → infra.
+
 ```bash
-# Stop each backend: Ctrl+C in its terminal, or:
-jps -l   # then kill the relevant java PIDs
+# 1. Stop the shell: Ctrl+C in its terminal, or find/kill the process on port 4200
+netstat -ano | grep ":4200" | grep LISTENING   # note the PID in the last column
+taskkill //PID <pid> //F                        # Windows
+# kill <pid>                                    # macOS/Linux
 
-# Stop the shell: Ctrl+C in its terminal
+# 2. Stop each backend the same way, by port:
+for port in 18081 8082 8083 8084 8085 8086; do
+  netstat -ano | grep ":$port " | grep LISTENING
+done
+# then taskkill //PID <pid> //F (or kill <pid>) for each one found
 
-# Stop infra (data preserved in volumes):
+# 3. Stop infra (data preserved in volumes — does NOT wipe Postgres/Keycloak data):
 cd rpms-platform/infra/docker
-docker compose -f docker-compose.dev.yml stop
+docker compose -p rpms-full -f docker-compose.full.yml stop
+```
+
+> **Don't use `jps -l` to find the backend PIDs on Windows** — it also lists unrelated
+> JVM processes (e.g. an IDE's Java language server) and can be misleading. Matching by
+> the port the service listens on (as above) is unambiguous. Also note: `docker compose
+> ... stop` (not `down -v`) is intentional — it stops containers without touching the
+> named volumes, so Postgres/Keycloak data survives a stop/start cycle. Never run `down
+> -v` on this stack unless you specifically intend to wipe the dev database.
+
+To fully verify everything is down:
+
+```bash
+docker ps                                       # should show no rpms-* containers
+for port in 4200 18081 8082 8083 8084 8085 8086 8180 5432; do
+  netstat -ano | grep ":$port " | grep LISTENING && echo "still up: $port"
+done
 ```
