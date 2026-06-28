@@ -424,6 +424,10 @@ rpms-design/
 
 ## Getting Started
 
+> 🚀 **Running the full application locally** (Docker infra + all 6 module backends +
+> Angular shell, for manual end-to-end testing): see
+> [`docs/running-rpms-locally.md`](docs/running-rpms-locally.md).
+
 ### Prerequisites
 
 - PostgreSQL 16+ with PostGIS extension
