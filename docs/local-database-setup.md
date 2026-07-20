@@ -354,7 +354,7 @@ DECLARE
     v_min NUMERIC;
     v_max NUMERIC;
 BEGIN
-    SELECT acceptable_min, acceptable_max INTO v_min, v_max
+    SELECT min_acceptable, max_acceptable INTO v_min, v_max
     FROM lu_quality_parameter
     WHERE parameter_code = NEW.parameter_code;
 
@@ -609,6 +609,8 @@ CREATE TABLE iot_sensor_reading (
 ```
 
 Until the original DDL is fixed, always run `m3-fix.sql` immediately after `tapping_task_monitoring_ddl.sql`.
+
+**Bug 3 — wrong column names in `fn_flag_quality_spec()`:** The fix script's trigger function originally selected `acceptable_min, acceptable_max` from `lu_quality_parameter`, but the actual DDL names those columns `min_acceptable`/`max_acceptable`. Inserting any row into `latex_quality_test` fails with `column "acceptable_min" does not exist` until this is corrected (already fixed in the `m3-fix.sql` above).
 
 ---
 
