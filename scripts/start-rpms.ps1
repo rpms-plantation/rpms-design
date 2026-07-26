@@ -1,4 +1,4 @@
-# ============================================================================
+﻿# ============================================================================
 # RPMS Full-Stack Startup Script
 # Starts: Docker infra → 6 backends (M1→M2→M4→M3→M5→M6) → Angular shell
 #
@@ -197,12 +197,12 @@ if (-not $SkipShell) {
     # Re-link local file: deps in case any dist/ changed
     Push-Location $shellDir
     Write-Host "    npm install (re-links local Angular libs) ..."
-    npm install --silent
+    npm.cmd install --silent
     Pop-Location
 
     Start-Process powershell -ArgumentList @(
         "-NoExit", "-Command",
-        "Write-Host 'Angular shell' -ForegroundColor Cyan; cd '$shellDir'; npm start"
+        "Write-Host 'Angular shell' -ForegroundColor Cyan; cd '$shellDir'; npm.cmd start"
     ) -WindowStyle Normal
 
     Wait-Http "http://localhost:4200" "Angular shell" 120 | Out-Null
