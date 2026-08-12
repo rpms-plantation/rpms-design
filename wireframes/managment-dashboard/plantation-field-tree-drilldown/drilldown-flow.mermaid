@@ -1,0 +1,38 @@
+stateDiagram-v2
+    [*] --> GridCollapsed
+
+    GridCollapsed: Plantation Grid (collapsed)\nGET /plantations
+    PlantationExpanded: + Divisions inline\nGET /plantations/{id}/divisions
+    DivisionExpanded: + Fields inline\nGET /plantations/{id}/fields
+    FieldExpanded: + Tree summary inline\nGET .../fields/{id}/tree-summary
+
+    TreeListPanel: Tree List Panel (slide-over)\nroute: trees outlet\nGET /trees?fieldId=
+    TreeDetailPopup: Tree Detail Popup (nested overlay)\nroute: treeDetail outlet\nGET /trees/{id}/profile + tabs
+
+    GridCollapsed --> PlantationExpanded: expand plantation row\n(query param, no new history entry)
+    PlantationExpanded --> GridCollapsed: collapse plantation row
+
+    PlantationExpanded --> DivisionExpanded: expand division row\n(query param, no new history entry)
+    DivisionExpanded --> PlantationExpanded: collapse division row
+
+    DivisionExpanded --> FieldExpanded: expand field row\n(query param — summary only, O(1) payload)
+    FieldExpanded --> DivisionExpanded: collapse field row
+
+    FieldExpanded --> TreeListPanel: "View Trees" action\n(named outlet nav — grid stays mounted)
+    TreeListPanel --> FieldExpanded: close panel (✕ / Esc)\n(outlet → null, grid untouched)
+
+    TreeListPanel --> TreeDetailPopup: click tree row\n(nested named outlet nav — list stays mounted)
+    TreeDetailPopup --> TreeListPanel: close popup (✕ / Esc)\n(outlet → null, list filter/scroll preserved)
+
+    note right of TreeListPanel
+        URL: /plantation/plantations
+             (trees:plantations/5/fields/42/trees?status=TAPPING)
+        Grid behind is dimmed but not unmounted.
+    end note
+
+    note right of TreeDetailPopup
+        URL: /plantation/plantations
+             (trees:plantations/5/fields/42/trees
+                (treeDetail:plantations/5/fields/42/trees/1071))
+        Six data tabs lazy-load independently on first activation.
+    end note
